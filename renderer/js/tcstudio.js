@@ -493,6 +493,7 @@ async function loadPack(paths) {
     $('#aip-pack-name').textContent = info.name;
     const bits = [info.count + ' files'];
     bits.push(info.weather.length ? info.weather.length + ' weather files' : info.timecycles.length + ' timecycles');
+    if (info.rpfs) bits.push(info.rpfs + ' RPF' + (info.rpfs === 1 ? '' : 's') + ' for mods');
     if (info.skydome) bits.push('has a sky texture');
     $('#aip-pack-meta').textContent = bits.join(' · ');
     $('#aip-pack').classList.remove('hidden');
@@ -527,24 +528,28 @@ async function baseFiles() {
 
 // ---------- the picture as the actual sky ----------
 
-/** Open a skydome.ytd without asking: the dropped pack, then citizen, then the
- *  player's own GTA V (found through FiveM, unlocked automatically if needed). */
+/** Find the sky without asking: the dropped pack (loose or inside its RPFs), the RPFs in
+ *  FiveM.app/mods, citizen, then the player's own GTA V (found through FiveM). */
+const SKY_WAIT = {
+  'pack-rpf': 'Looking for the sky inside your pack\'s RPFs…',
+  mods: 'Looking for the sky in your mods folder…',
+  game: 'Getting the sky from your GTA V… (first time can take about 10 seconds)',
+};
 async function openSky() {
-  const st = await api.call('sky:status');
-  const order = [st.inPack && 'pack', st.inCitizen && 'citizen', st.gameDir && 'game'].filter(Boolean);
+  const { sources } = await api.call('sky:status');
   let lastError = null;
-  for (const src of order) {
-    const h = src === 'game' ? notify({ type: 'loading', title: 'Getting the sky from your GTA V…', message: 'First time only: this can take about 10 seconds.' }) : null;
+  for (const src of sources) {
+    const h = SKY_WAIT[src] ? notify({ type: 'loading', title: SKY_WAIT[src], message: 'Your files are only read, never changed.' }) : null;
     try {
       const r = await api.call('sky:open', src);
-      if (h) h.update({ type: 'success', title: 'Got the sky from your GTA V', message: 'Your game files were only read, never changed.' });
+      if (h) h.close();
       return r;
     } catch (e) {
-      lastError = cleanError(e.message);
       if (h) h.close();
+      lastError = cleanError(e.message);
     }
   }
-  return { error: order.length ? lastError : 'not-found' };
+  return { error: sources.length ? lastError : 'not-found' };
 }
 
 function encodeLevels(img, t) {
@@ -579,7 +584,7 @@ async function applySkyPicture(opened = null) {
   if (!opened || opened.error) {
     aip.sky = { error: opened && opened.error !== 'not-found'
       ? 'I couldn\'t open GTA V\'s sky file (' + opened.error + '), so I matched the sky colours to your picture instead.'
-      : 'I couldn\'t find GTA V\'s sky file on this PC, so I matched the sky colours to your picture instead.', canPick: true };
+      : 'I couldn\'t find a sky file (no sky RPF in your pack or mods folder, and no GTA V found), so I matched the sky colours to your picture instead.', canPick: true };
     return aip.sky;
   }
   const tex = opened.textures[opened.skyIndex];
@@ -668,7 +673,7 @@ async function generate() {
     }
     const lines = res.report.map((r) => `${r.ok ? '✓' : '!'} ${esc(r.text)}`);
     if (sk) {
-      lines.unshift(skyOk ? `✓ Your picture is now the sky texture (${esc(sk.tex.width + '×' + sk.tex.height)}, from ${esc(sk.label)}). GTA shows it at night with the stars${aip.spec.skyImage.allDay ? ', and I set it to show all day' : '; say <i>all day</i> to show it in the daytime too'}.` : '! ' + esc(sk.error) + (sk.canPick ? ' <button class="link-btn" data-act="pick-sky">Have the file? Choose it</button>' : ''));
+      lines.unshift(skyOk ? `✓ Your picture is now the sky (${esc(sk.tex.width + '×' + sk.tex.height)}) in ${esc(sk.label)}${/^@mods\//.test(sk.rel) ? ', which goes into your mods folder when you install' : ''}. GTA shows it at night with the stars${aip.spec.skyImage.allDay ? ', and I set it to show all day' : '; say <i>all day</i> to show it in the daytime too'}.` : '! ' + esc(sk.error) + (sk.canPick ? ' <button class="link-btn" data-act="pick-sky">Have a sky RPF or skydome.ytd? Choose it</button>' : ''));
     }
 
     const tw = await api.call('tweaks:list');

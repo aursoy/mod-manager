@@ -462,3 +462,87 @@ test('editor shows plain names and splits weather from area', async () => {
   assert.deepStrictEqual(tc.splitSection('EXTRASUNNY / URBAN'), { weather: 'EXTRASUNNY', area: 'URBAN' });
   assert.deepStrictEqual(tc.splitSection('Global'), { weather: 'Global', area: null });
 });
+
+// ---------- sky inside RPFs (how graphics packs ship it for FiveM.app/mods) ----------
+const rpf = require('../src/core/rpf');
+const { RpfSky } = require('../src/core/skytex');
+const { openSkySource, skySources } = require('../src/core/skysource');
+
+function skyRpf({ nested = false, w = 64, h = 64 } = {}) {
+  const stored = buildYtd(['moon', 'starfield'], w, h);
+  const res = { type: 'res', name: 'skydome.ytd', stored, sysFlags: stored.readUInt32LE(8), gfxFlags: stored.readUInt32LE(12) };
+  const other = { type: 'bin', name: 'readme.txt', stored: Buffer.from('keep me'), compressed: false, size: 7 };
+  let tree = { type: 'dir', name: '', children: [{ type: 'dir', name: 'textures', children: [res] }, other] };
+  if (nested) {
+    const inner = rpf.writeRpf(tree);
+    tree = { type: 'dir', name: '', children: [{ type: 'bin', name: 'x64a.rpf', stored: inner, compressed: false, size: inner.length }] };
+  }
+  return rpf.writeRpf(tree);
+}
+
+test('sky RPF: finds skydome.ytd (also inside an inner RPF), swaps the picture, keeps everything else', () => {
+  for (const nested of [false, true]) {
+    const sky = new RpfSky(skyRpf({ nested }), 'sky.rpf');
+    assert.strictEqual(sky.path, nested ? 'x64a.rpf/textures/skydome.ytd' : 'textures/skydome.ytd');
+    const i = sky.skyIndex();
+    assert.strictEqual(sky.textures[i].name, 'starfield');
+    const out = sky.replace(i, new Uint8Array(sky.textures[i].dataSize).fill(0x42));
+    const again = new RpfSky(out, 'sky.rpf');
+    const tex = again.describe(true);
+    assert.ok(tex.find((t) => t.name === 'starfield').data.every((b) => b === 0x42));
+    assert.ok(tex.find((t) => t.name === 'moon').data.every((b) => b === 0x11), 'moon untouched');
+    let root = rpf.readRpf(out);
+    if (nested) root = rpf.readRpf(rpf.getBinaryData(root.children[0]));
+    assert.strictEqual(rpf.getBinaryData(root.children.find((c) => c.name === 'readme.txt')).toString(), 'keep me');
+  }
+  assert.throws(() => new RpfSky(rpf.writeRpf({ type: 'dir', name: '', children: [] }), 'empty.rpf'), /no skydome/);
+});
+
+test('sky RPF from a dropped pack goes to FiveM.app/mods, and switching the pack off removes it', async () => {
+  const { m, cit } = makeCitizen();
+  const src = fs.mkdtempSync(path.join(os.tmpdir(), 'kt-rpfpack-'));
+  const packDir = path.join(src, 'Cool Sky');
+  fs.mkdirSync(path.join(packDir, 'citizen', 'common', 'data', 'timecycle'), { recursive: true });
+  fs.mkdirSync(path.join(packDir, 'mods'), { recursive: true });
+  fs.writeFileSync(path.join(packDir, 'citizen', 'common', 'data', 'timecycle', 'w_extrasunny.xml'), buildTimecycle());
+  fs.writeFileSync(path.join(packDir, 'mods', 'coolsky.rpf'), skyRpf({ nested: true }));
+  fs.writeFileSync(path.join(packDir, 'mods', 'other.rpf'), rpf.writeRpf({ type: 'dir', name: '', children: [] }));
+
+  const staged = m.stageSources([packDir]);
+  assert.ok(staged.some((s) => s.rel === '@mods/coolsky.rpf'), 'rpfs are staged for the mods folder');
+  const pack = { staged, info: describePack('Cool Sky', staged) };
+  assert.strictEqual(pack.info.rpfs, 2);
+  const ctx = { pack, mgr: m, gtaDirs: () => [], unlock: null };
+  assert.deepStrictEqual(skySources(ctx), ['pack-rpf']);
+  const got = await openSkySource('pack-rpf', ctx);
+  assert.strictEqual(got.rel, '@mods/coolsky.rpf', 'the sky-looking archive is found');
+  const i = got.obj.skyIndex();
+  const out = got.obj.replace(i, new Uint8Array(got.obj.textures[i].dataSize).fill(0x77));
+
+  const res = createPackWithTweaks(m, 'AI Sky', {}, {}, { staged, extra: { [got.rel]: out } });
+  const modsFile = path.join(path.dirname(cit), 'mods', 'coolsky.rpf');
+  assert.ok(new RpfSky(fs.readFileSync(modsFile)).describe(true).find((t) => t.name === 'starfield').data.every((b) => b === 0x77));
+  assert.ok(fs.existsSync(path.join(path.dirname(cit), 'mods', 'other.rpf')), 'the other rpf is installed too');
+  assert.ok(!fs.existsSync(path.join(cit, 'common', 'data', 'coolsky.rpf')), 'rpfs never land in citizen');
+  m.setTweak(res.id, false);
+  assert.ok(!fs.existsSync(modsFile), 'switching the pack off takes it back out');
+});
+
+test('a sky RPF already in the mods folder is edited, and the original comes back when the pack is off', async () => {
+  const { m, cit } = makeCitizen();
+  const mods = path.join(path.dirname(cit), 'mods');
+  fs.mkdirSync(mods, { recursive: true });
+  const original = skyRpf();
+  fs.writeFileSync(path.join(mods, 'weather_sky.rpf'), original);
+  fs.writeFileSync(path.join(mods, 'cars.rpf'), rpf.writeRpf({ type: 'dir', name: '', children: [] }));
+  const ctx = { pack: null, mgr: m, gtaDirs: () => [], unlock: null };
+  assert.deepStrictEqual(skySources(ctx), ['mods']);
+  const got = await openSkySource('mods', ctx);
+  assert.strictEqual(got.rel, '@mods/weather_sky.rpf');
+  const i = got.obj.skyIndex();
+  const out = got.obj.replace(i, new Uint8Array(got.obj.textures[i].dataSize).fill(0x33));
+  const res = createPackWithTweaks(m, 'My sky', {}, {}, { extra: { [got.rel]: out } });
+  assert.notDeepStrictEqual(fs.readFileSync(path.join(mods, 'weather_sky.rpf')), original);
+  m.setTweak(res.id, false);
+  assert.deepStrictEqual(fs.readFileSync(path.join(mods, 'weather_sky.rpf')), original, 'the player\'s own sky rpf is put back exactly');
+});

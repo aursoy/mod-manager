@@ -128,6 +128,7 @@ const COLOUR_GROUPS = {
   postfx: /^(postfx_|nv_)/i,
 };
 
+const MODS_PREFIX = '@mods/';
 const sha1 = (b) => crypto.createHash('sha1').update(b).digest('hex');
 const norm = (rel) => rel.replace(/\\/g, '/').replace(/^\/+/, '');
 
@@ -321,12 +322,21 @@ class CitizenManager {
   }
 
   // ---------- journaled writes ----------
+  /** Where a pack-relative path lives on disk. "@mods/x.rpf" is FiveM.app/mods/x.rpf
+   *  (graphics packs ship sky and texture RPFs that go there); anything else is under citizen. */
+  absFor(rel) {
+    rel = norm(rel);
+    const c = this.requireCitizen();
+    if (rel.startsWith(MODS_PREFIX)) return path.join(path.dirname(c), 'mods', ...rel.slice(MODS_PREFIX.length).split('/'));
+    return path.join(c, ...rel.split('/'));
+  }
+
   backupPath(rel) { return path.join(this.dir, 'backups', ...norm(rel).split('/')); }
 
   ensureBackup(rel) {
     rel = norm(rel);
     if (this.state.journal[rel]) return;
-    const abs = path.join(this.requireCitizen(), rel);
+    const abs = this.absFor(rel);
     const existed = fs.existsSync(abs);
     if (existed) {
       const b = this.backupPath(rel);
@@ -339,7 +349,7 @@ class CitizenManager {
   writeFile(rel, data, owner) {
     rel = norm(rel);
     this.ensureBackup(rel);
-    const abs = path.join(this.requireCitizen(), rel);
+    const abs = this.absFor(rel);
     fs.mkdirSync(path.dirname(abs), { recursive: true });
     fs.writeFileSync(abs, data);
     if (owner) this.state.owners[rel] = owner;
@@ -349,7 +359,7 @@ class CitizenManager {
     rel = norm(rel);
     const j = this.state.journal[rel];
     if (!j) return;
-    const abs = path.join(this.requireCitizen(), rel);
+    const abs = this.absFor(rel);
     if (j.existed) {
       fs.mkdirSync(path.dirname(abs), { recursive: true });
       fs.copyFileSync(this.backupPath(rel), abs);
@@ -427,6 +437,8 @@ class CitizenManager {
     const mapEntry = (fullPathOrRel, getSample) => {
       const n = norm(fullPathOrRel);
       if (isIgnored(n)) return null;
+      // RPFs in a graphics pack (sky, textures, ...) go in FiveM.app/mods, not citizen.
+      if (/\.rpf$/i.test(n)) return MODS_PREFIX + path.basename(n);
       // If citizen/ is in the path, strip up to citizen/
       const citMatch = n.match(/(?:^|\/)citizen\/(.*)$/i);
       if (citMatch) return citMatch[1];
@@ -847,4 +859,4 @@ class CitizenManager {
   }
 }
 
-module.exports = { CitizenManager, NO_WATER_XML, COLOUR_GROUPS };
+module.exports = { CitizenManager, NO_WATER_XML, COLOUR_GROUPS, MODS_PREFIX };
