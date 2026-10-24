@@ -18,8 +18,8 @@ const cloudLab = createLab({
   texts: { what: 'clouds', from: 'Clouds from', list: 'Cloud hats', emptyTitle: 'Looking for your clouds…', emptyText: 'Checking your pack, your mods folder, citizen and GTA V.', none: NO_PACK },
 });
 const bloodLab = createLab({
-  P: 'bl', kind: 'blood', mount: '#lab-blood', icon: 'droplet', active: () => pane === 'blood' && graphicsOn(),
-  texts: { what: 'blood textures', from: 'Blood from', list: 'Blood textures', emptyTitle: 'Looking for your blood FX…', emptyText: 'Checking your pack, your mods folder, citizen and GTA V for fxdecal.ytd and peddamagedecals.ytd.', none: NO_PACK },
+  P: 'bl', kind: 'blood', mode: 'files', mount: '#lab-blood', icon: 'droplet', active: () => pane === 'blood' && graphicsOn(),
+  texts: { what: 'blood textures', from: 'Blood FX RPF', open: 'Choose blood FX RPF', list: 'Blood textures', emptyTitle: 'Choose your blood FX RPF', emptyText: 'Press "Choose blood FX RPF" and pick the .rpf your blood FX is in (for example from FiveM.app/mods). Paint it here, then Install puts it into your mods folder.', none: NO_PACK },
 });
 
 const api = window.api;
@@ -860,7 +860,7 @@ const LEAD = {
   packs: 'Your graphics packs live here. Add one, switch it on or off, and tint the colours of your whole game.',
   ai: 'Describe the look you want and the AI builds a pack for you. Add a picture to make it your sky, or add a pack folder to build on.',
   clouds: 'Change your cloud hats: recolour every cloud at once, paint on them, or swap in your own picture. Then press Install.',
-  blood: 'Change the blood: recolour it (neon, confetti, black…), paint on it or swap in your own picture. Found in your pack, mods folder or GTA V. Then press Install.',
+  blood: 'Change the blood: recolour it (neon, confetti, black…), paint on it or swap in your own picture. Choose your blood FX RPF, then press Install to put it into your mods folder.',
   editor: 'For tinkerers: open any timecycle file and change every colour and value by hand, with a live preview of the day.',
 };
 
@@ -910,5 +910,6 @@ export async function handleDrop(paths) {
   }
   if (pane === 'editor' && paths.length === 1 && /\.xml$/i.test(paths[0])) { await openExternal(paths[0]); return true; }
   if (pane === 'ai') { await loadPack(paths); return true; }
+  if (pane === 'blood' && paths.length === 1 && /\.rpf$/i.test(paths[0])) { await bloodLab.openPaths(paths); return true; }
   return false;
 }

@@ -6,13 +6,7 @@ import { initStudio, refreshStudio, handleDrop as studioDrop } from './tcstudio.
 import * as TC from './timecycle.js';
 import { initLook, setBackgroundFile } from './look.js';
 import { refreshWorld, initWorldPage } from './world.js';
-import { createLab } from './cloudlab.js';
 
-const clothesLab = createLab({
-  P: 'ck', kind: 'clothes', mode: 'files', mount: '#lab-clothes', icon: 'shirt',
-  active: () => document.querySelector('.page[data-page="clothes"]').classList.contains('active'),
-  texts: { what: 'clothes', from: 'Clothes', open: 'Open clothes', list: 'Clothing textures', emptyTitle: 'Open some clothes', emptyText: 'Pick clothing .ytd files, a folder (like a server\'s stream folder) or an .rpf with clothes in it. You can also drop them here.', none: '' },
-});
 import { drawScene } from './tcpreview.js';
 import { initPages, refreshMods, refreshPresets, refreshCache, refreshProfile, addModFiles } from './pages.js';
 
@@ -98,6 +92,7 @@ function go(page) {
   const heavy = page === 'gun' || page === 'sound';
   document.body.classList.toggle('heavy', heavy);
   fxState.paused = heavy;
+  fxState.kick && fxState.kick();
   api.call('discord:activity', 'In ' + label, 'Kt Mod Manager').catch(() => {});
   refreshPage(page);
 }
@@ -116,7 +111,6 @@ function refreshPage(page) {
   if (page === 'mods') refreshMods();
   if (page === 'presets') refreshPresets();
   if (page === 'cache') refreshCache();
-  if (page === 'clothes') clothesLab.enter();
   requestAnimationFrame(() => $$('.seg').forEach(syncSeg));
 }
 
@@ -355,7 +349,7 @@ function initBackups() {
 }
 
 // ---------- settings ----------
-const prefs = { sound: true, reduceMotion: false, bg: false, chrome: false };
+const prefs = { sound: true, reduceMotion: false, bg: true };
 function loadPrefs() {
   try { Object.assign(prefs, JSON.parse(localStorage.getItem('kt.prefs') || '{}')); } catch (e) { /* ignore */ }
   applyPrefs();
@@ -363,8 +357,8 @@ function loadPrefs() {
 function applyPrefs() {
   notifySettings.sound = prefs.sound;
   fxState.bg = prefs.bg;
+  fxState.kick && fxState.kick();
   document.body.classList.toggle('reduce-motion', prefs.reduceMotion);
-  document.body.classList.toggle('chrome', !!prefs.chrome);
   $$('[data-setting]').forEach((s) => s.classList.toggle('on', !!prefs[s.dataset.setting]));
 }
 function initSettings() {
@@ -413,7 +407,6 @@ function initDrop() {
     else if (currentPage === 'gun') openGunFile(paths[0]);
     else if (currentPage === 'sound') handleSoundDrop(paths);
     else if (currentPage === 'mods') addModFiles(paths);
-    else if (currentPage === 'clothes') clothesLab.openPaths(paths);
     else if (currentPage === 'settings' && /\.(png|jpe?g|webp|gif|bmp|mp4|webm)$/i.test(paths[0])) setBackgroundFile(paths[0]);
     else notify.info('Drop on a card', 'Drag files onto the tweak you want them for.');
   });
@@ -467,7 +460,6 @@ async function boot() {
   safe('initBackups', initBackups);
   safe('initSettings', initSettings);
   safe('initLook', initLook);
-  safe('initClothes', () => clothesLab.init({ modal }));
   safe('initDrop', initDrop);
   safe('initKeys', initKeys);
   safe('initPages', () => initPages({ modal, go }));

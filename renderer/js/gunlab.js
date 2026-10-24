@@ -1,5 +1,6 @@
-// Gun Lab: 3D preview of weapon drawables, texture recolouring, 3D-style text
-// stamping, and re-encoding back into the original archive.
+// Gun Lab: 3D preview of weapon drawables, texture recolouring, real 3D text
+// (extruded, bevelled and lit meshes, see text3d.js) stamped into the texture,
+// and re-encoding back into the original archive.
 //
 // Performance model: colour filters run on a full-res "graded" canvas only
 // when colour settings change. Interactive redraws (text drag, sliders for
@@ -13,6 +14,7 @@ import { icon } from './icons.js';
 import { decode, encode, EDITABLE } from './dxt.js';
 import { syncSeg, fillRange, busy } from './fx.js';
 import { needsKeys, ensureKeys, cleanError } from './keys.js';
+import { render3d, silhouette, loadFont, addFont, fontReady } from './text3d.js';
 
 const api = window.api;
 const $ = (s, r = document) => r.querySelector(s);
@@ -285,6 +287,7 @@ function shade(hex, k) {
 // Draw a text layer in texture pixel space (caller sets any scale).
 function drawLayer(g, L) {
   if (!L.text) return;
+  if (L.style === '3d' && drawLayer3d(g, L)) return;
   g.save();
   g.translate(L.x, L.y);
   g.rotate((L.rot * Math.PI) / 180);
@@ -311,6 +314,38 @@ function drawLayer(g, L) {
   g.shadowBlur = 0;
   L.bw = g.measureText(L.text).width; L.bh = L.size;
   g.restore();
+}
+
+// 3D style: the lit 3D render, with the outline and glow around its shape.
+// Returns false (draw it flat for now) while its font is still loading.
+function drawLayer3d(g, L) {
+  const m = g.getTransform();
+  const k = Math.hypot(m.a, m.b) || 1; // texture px -> canvas px
+  const r = render3d(L, L.size * k);
+  if (!r) {
+    if (!fontReady(L.font) && !L._loading) {
+      L._loading = true;
+      loadFont(L.font).then(() => scheduleRender()).catch((e) => notify.error('Font not loaded', e.message)).finally(() => { L._loading = false; });
+    }
+    return false;
+  }
+  g.save();
+  g.translate(L.x, L.y);
+  g.rotate((L.rot * Math.PI) / 180);
+  const x = -r.ox / k, y = -r.oy / k, w = r.w / k, h = r.h / k;
+  if (L.outline) {
+    const sil = silhouette(r, L.stroke);
+    const o = L.outline;
+    for (let i = 0; i < 16; i++) {
+      const a = (i / 16) * Math.PI * 2;
+      g.drawImage(sil, x + Math.cos(a) * o, y + Math.sin(a) * o, w, h);
+    }
+  }
+  if (L.glow) { g.shadowColor = L.fill; g.shadowBlur = L.glow * k; }
+  g.drawImage(r.img, x, y, w, h);
+  g.restore();
+  L.bw = w; L.bh = h;
+  return true;
 }
 
 // Colour pass: full res + preview-sized copy. Only runs when fx change.
@@ -459,6 +494,7 @@ function newLayer(t) {
   return {
     id: layerSeq++, text: 'KT', font: 'Impact', size: Math.round(t.h / 9), depth: 8, rot: 0, outline: 2, glow: 0,
     fill: '#ffffff', side: '#3a3a3a', stroke: '#000000', x: t.w / 2, y: t.h / 2,
+    style: '3d', depth3d: 30, bevel: 4, tiltX: -18, tiltY: 22, light: -35, finish: 'metal',
   };
 }
 
@@ -476,14 +512,31 @@ function renderLayers() {
     const sz = $('[data-tx=size]', ed);
     sz.max = Math.max(400, Math.round(t.h / 2));
     $$('[data-tx]', ed).forEach((el) => { el.value = selLayer[el.dataset.tx]; if (el.type === 'range') fillRange(el); });
+    $$('[data-tx-seg]', ed).forEach((sg) => {
+      $$('button', sg).forEach((b) => b.classList.toggle('on', b.dataset.v === selLayer[sg.dataset.txSeg]));
+      requestAnimationFrame(() => syncSeg(sg));
+    });
+    syncLayerStyle();
     syncLayerLabels();
   }
+}
+
+function syncLayerStyle() {
+  const is3d = selLayer && selLayer.style === '3d';
+  $$('.tx-3d').forEach((el) => el.classList.toggle('hidden', !is3d));
+  $$('.tx-flat').forEach((el) => el.classList.toggle('hidden', is3d));
+  if (is3d) requestAnimationFrame(() => $$('.tx-3d [data-tx-seg]').forEach(syncSeg));
 }
 
 function syncLayerLabels() {
   if (!selLayer) return;
   $('[data-txo=size]').textContent = selLayer.size + 'px';
   $('[data-txo=depth]').textContent = selLayer.depth;
+  $('[data-txo=depth3d]').textContent = selLayer.depth3d + '%';
+  $('[data-txo=bevel]').textContent = selLayer.bevel;
+  $('[data-txo=tiltX]').textContent = selLayer.tiltX + '°';
+  $('[data-txo=tiltY]').textContent = selLayer.tiltY + '°';
+  $('[data-txo=light]').textContent = selLayer.light + '°';
   $('[data-txo=rot]').textContent = selLayer.rot + '°';
   $('[data-txo=outline]').textContent = selLayer.outline;
   $('[data-txo=glow]').textContent = selLayer.glow;
@@ -806,6 +859,25 @@ export function initGunLab() {
     }
     scheduleRender();
   }));
+  $$('[data-tx-seg]').forEach((sg) => $$('button', sg).forEach((b) => (b.onclick = () => {
+    if (!selLayer) return;
+    selLayer[sg.dataset.txSeg] = b.dataset.v;
+    $$('button', sg).forEach((x) => x.classList.toggle('on', x === b));
+    syncSeg(sg);
+    if (sg.dataset.txSeg === 'style') syncLayerStyle();
+    scheduleRender();
+  })));
+  $('#text-font-load').onclick = async () => {
+    const f = await api.call('gun:pickFont').catch((e) => { notify.error('Could not load font', e.message); return null; });
+    if (!f) return;
+    try { addFont(f.name, f.data); } catch (e) { return notify.error('Could not read that font', 'Pick a .ttf or .otf file.'); }
+    try { const face = new FontFace(f.name, f.data); await face.load(); document.fonts.add(face); } catch (e) { /* 3D still works */ }
+    const sel = $('[data-tx=font]');
+    if (![...sel.options].some((o) => o.value === f.name)) sel.add(new Option(f.name, f.name));
+    sel.value = f.name;
+    sel.dispatchEvent(new Event('input'));
+    notify.success('Font loaded', f.name + ' is ready for your text.');
+  };
   $('#text-del').onclick = () => {
     const t = textures[selected];
     if (!t || !selLayer) return;

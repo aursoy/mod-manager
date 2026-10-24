@@ -654,7 +654,7 @@ test('sky is found in a pack RPF whatever it is called, and RPFs without a sky a
 });
 
 // ---------- black mountains / snow / visual settings (data files edited in place) ----------
-const { WorldFiles, VS, WEATHER } = require('../src/core/worldfiles');
+const { WorldFiles, VS, WEATHER, PED_LOD } = require('../src/core/worldfiles');
 
 const VS_TEXT = '# Misc Values\nmisc.Multiplier.heightStart\t100\nmisc.Multiplier.farClipMultiplier\t1\n\n# black mountains fix\nlod.fadedist.slod3\t\t25.0\r\n\n# vehicles\ncar.lod.distance.high\t90.00\n';
 const WEATHER_XML = '<CWeatherTypes><WeatherTypes><Item><Name>EXTRASUNNY</Name><Snow value="0.000000"/><SnowMist value="0.000000"/></Item><Item><Name>XMAS</Name><Snow value="1.000000"/><SnowMist value="1.000000"/></Item></WeatherTypes></CWeatherTypes>';
@@ -711,7 +711,26 @@ test('visual settings editor: any line can be changed and reset', () => {
   assert.strictEqual(fs.readFileSync(path.join(cit, VS), 'utf8'), VS_TEXT);
 });
 
-// ---------- blood FX and clothes ----------
+test('player detail fix: raises the ped LOD distances, works together with black mountains, and off puts each one back', () => {
+  const { m, cit } = makeCitizen();
+  const FPS_VS = VS_TEXT + '\n# peds\nped.lod.distance.high\t5.00\nped.lod.distance.medium\t10.00\nped.lod.distance.low\t15.00\npedincar.lod.distance.high\t2.00\n';
+  const wf = new WorldFiles(m, path.join(os.tmpdir(), 'kt-wf4-' + Date.now()), (arc, inner) => (arc === 'update/update.rpf' && inner.endsWith('visualsettings.dat') ? Buffer.from(FPS_VS) : null));
+  assert.deepStrictEqual(wf.pedLod(), { available: true, on: false, before: 5, now: 5, fixed: PED_LOD['ped.lod.distance.high'] });
+  wf.setMountains({ removed: true });
+  let st = wf.setPedLod(true);
+  assert.strictEqual(st.on, true);
+  assert.strictEqual(st.now, PED_LOD['ped.lod.distance.high']);
+  let text = fs.readFileSync(path.join(cit, VS), 'utf8');
+  assert.ok(text.includes('ped.lod.distance.low\t400\n') && text.includes('farClipMultiplier\t0.5'), 'both options are in the file');
+  assert.ok(text.includes('# Kt Mod Manager\npedincar.lod.distance.high.x64\t80'), 'a line the file did not have is added');
+  wf.setMountains({ removed: false });
+  text = fs.readFileSync(path.join(cit, VS), 'utf8');
+  assert.ok(text.includes('farClipMultiplier\t1\n') && text.includes('ped.lod.distance.high\t150'), 'mountains back, player fix kept');
+  assert.strictEqual(wf.setPedLod(false).now, 5);
+  assert.ok(!fs.existsSync(path.join(cit, VS)), 'nothing left on: the game\'s own file is used again');
+});
+
+// ---------- blood FX ----------
 const tex = require('../src/core/texsource');
 
 test('blood FX: found in GTA V, edited, and installed both as mods/kt_bloodfx.rpf and in citizen/platform/textures', async () => {
@@ -733,20 +752,24 @@ test('blood FX: found in GTA V, edited, and installed both as mods/kt_bloodfx.rp
   assert.ok(new YtdFile(fs.readFileSync(path.join(cit, 'platform/textures/fxdecal.ytd'))).describe(true)[0].data.every((b) => b === 0x66));
 });
 
-test('clothes: opens a folder of clothing textures with readable names, saves only what changed', async () => {
-  const { m } = makeCitizen();
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kt-clothes-'));
-  fs.mkdirSync(path.join(dir, 'stream'));
-  fs.writeFileSync(path.join(dir, 'stream', 'mp_m_freemode_01^jbib_diff_015_c_uni.ytd'), buildYtd(['jbib_diff_015_c_uni'], 64, 64));
-  fs.writeFileSync(path.join(dir, 'stream', 'mp_f_freemode_01^p_head_diff_002_a.ytd'), buildYtd(['p_head_diff_002_a'], 64, 64));
-  fs.writeFileSync(path.join(dir, 'stream', 'readme.txt'), 'x');
-  const src = await tex.openFiles('clothes', [dir], { mgr: m, unlock: null });
-  assert.deepStrictEqual(src.items.map((x) => x.name).sort(), ['Hat #2 · texture A · female', 'Top #15 · texture C · male']);
-  assert.deepStrictEqual(src.outputs(), {});
-  const top = src.items.find((x) => x.name.startsWith('Top'));
-  src.replace(top.key, 0, new Uint8Array(top.ytd.textures[0].dataSize).fill(0x44));
-  assert.deepStrictEqual(src.files().map((f) => f.name), ['mp_m_freemode_01^jbib_diff_015_c_uni.ytd']);
-  assert.deepStrictEqual(Object.keys(src.outputs()), ['@mods/kt_clothes.rpf']);
-  assert.strictEqual(tex.clothingName('lowr_000_a_uni.ytd'), 'Pants #0 · texture A');
-  assert.strictEqual(tex.clothingName('random.ytd'), 'random');
+test('blood FX: the RPF the player picks is edited in place and goes into mods under its own name', async () => {
+  const { m, cit } = makeCitizen();
+  const dl = fs.mkdtempSync(path.join(os.tmpdir(), 'kt-dl-blood-'));
+  const file = path.join(dl, 'MyBlood_v2.rpf');
+  const inner = rpf.writeRpf({ type: 'dir', name: '', children: [resOf('custom_splats.ytd', buildYtd(['splat'], 64, 64))] });
+  fs.writeFileSync(file, rpf.writeRpf({ type: 'dir', name: '', children: [binOf('x64.rpf', inner), resOf('readme_tex.ytd', buildYtd(['logo'], 64, 64))] }));
+  const ctx = { pack: null, mgr: m, gtaDirs: () => [], unlock: null };
+  const src = await tex.openFiles('blood', [file], ctx);
+  assert.deepStrictEqual(src.items.map((x) => x.path).sort(), ['readme_tex.ytd', 'x64.rpf/custom_splats.ytd'], 'no known blood names: every texture in the chosen RPF is shown');
+  assert.deepStrictEqual(src.outputs(), {}, 'nothing changed yet');
+  const k = src.items.findIndex((x) => x.file === 'custom_splats.ytd');
+  src.replace(k, 0, new Uint8Array(src.items[k].ytd.textures[0].dataSize).fill(0x22));
+  const out = src.outputs();
+  assert.deepStrictEqual(Object.keys(out), ['@mods/MyBlood_v2.rpf']);
+  assert.strictEqual(src.files()[0].name, 'MyBlood_v2.rpf');
+  createPackWithTweaks(m, 'Custom blood FX', {}, {}, { extra: out }, (rel) => fs.readFileSync(m.absFor(rel)));
+  const again = await tex.openFiles('blood', [path.join(path.dirname(cit), 'mods', 'MyBlood_v2.rpf')], ctx);
+  const at = (s2) => s2.items.find((x) => x.file === 'custom_splats.ytd').ytd.describe(true)[0].data;
+  assert.ok(at(again).every((b) => b === 0x22), 'the edit is in the installed RPF');
+  assert.ok(!at(await tex.openFiles('blood', [file], ctx)).every((b) => b === 0x22), 'the picked file itself is untouched');
 });

@@ -3,14 +3,14 @@
 // for painting, and hands back the files to install. Kinds:
 //   clouds  cloudhat_*.ytd                         (Graphics → Clouds)
 //   blood   fxdecal.ytd, peddamagedecals.ytd, ...  (Graphics → Blood FX)
-//   clothes any clothing .ytd the player opens      (Clothing Lab)
 // Sources (searched by contents, never by file name):
 //   pack       loose in the pack dropped into the Pack AI
 //   pack-rpf   inside one of that pack's RPFs        -> edited RPF goes to mods
 //   mods       inside an RPF already in FiveM.app/mods -> edited RPF replaces it (backed up)
 //   citizen    loose in citizen
 //   game       GTA V's own copy                       -> new mods/kt_<kind>.rpf (+ loose copy for textures/)
-//   files      .ytd files / folders / RPFs the player picked (clothes)
+//   files      the RPF the player picked (Blood FX): edited in place, installed into mods
+//              under its own name (replacing it, backed up, when it is already there)
 
 const fs = require('fs');
 const path = require('path');
@@ -38,26 +38,9 @@ function bloodName(file) {
   return n;
 }
 
-// GTA ped component codes -> what they are
-const PARTS = {
-  head: 'Head', berd: 'Mask', hair: 'Hair', uppr: 'Arms / gloves', lowr: 'Pants', hand: 'Bag / parachute', feet: 'Shoes',
-  teef: 'Chain / scarf', accs: 'Undershirt', task: 'Vest / armour', decl: 'Decal', jbib: 'Top',
-  p_head: 'Hat', p_eyes: 'Glasses', p_ears: 'Earrings', p_lwrist: 'Watch', p_rwrist: 'Bracelet',
-};
-/** "mp_m_freemode_01^jbib_diff_015_c_uni.ytd" -> "Top #15 · texture C · male" */
-function clothingName(file) {
-  const base = path.basename(file, '.ytd');
-  const gender = /(^|[\^_/])mp_f_/i.test(file) ? ' · female' : /(^|[\^_/])mp_m_/i.test(file) ? ' · male' : '';
-  const n = base.split('^').pop().toLowerCase();
-  const m = /^(p_[a-z]+|[a-z]{4})_(?:diff_)?(\d{3})(?:_([a-z]))?/.exec(n);
-  if (!m || !PARTS[m[1]]) return base + gender;
-  return PARTS[m[1]] + ' #' + Number(m[2]) + (m[3] ? ' · texture ' + m[3].toUpperCase() : '') + gender;
-}
-
 const KINDS = {
   clouds: { test: (n) => /^cloudhat.*\.ytd$/i.test(n), name: cloudName, out: '@mods/kt_clouds.rpf', gameFiles: ['x64b.rpf', 'update/update.rpf', 'x64a.rpf', 'x64c.rpf'], label: 'cloud hats' },
   blood: { test: (n) => /^(fxdecal|peddamagedecals|.*blood.*)\.ytd$/i.test(n), name: bloodName, out: '@mods/kt_bloodfx.rpf', loose: 'platform/textures/', gameFiles: ['x64a.rpf', 'update/update.rpf'], label: 'blood textures' },
-  clothes: { test: (n) => /\.ytd$/i.test(n), name: clothingName, out: '@mods/kt_clothes.rpf', gameFiles: [], label: 'clothing textures' },
 };
 
 async function withKeys(fn, unlock) {
@@ -181,9 +164,10 @@ async function openSource(kind, id, ctx) {
   throw new Error('Unknown source');
 }
 
-/** Files, folders or RPFs the player picked (Clothing Lab). */
+/** Files, folders or RPFs the player picked. */
 async function openFiles(kind, paths, ctx) {
   const K = KINDS[kind];
+  if (paths.length === 1 && /\.rpf$/i.test(paths[0]) && fs.statSync(paths[0]).isFile()) return pickedRpf(K, paths[0], ctx);
   const found = [];
   const add = (file, rel) => {
     if (/\.ytd$/i.test(file)) found.push({ name: path.basename(file), path: rel, stored: fs.readFileSync(file), from: file });
@@ -203,4 +187,32 @@ async function openFiles(kind, paths, ctx) {
   return copySource(K, found, paths.length === 1 ? path.basename(paths[0]) : paths.length + ' files');
 }
 
-module.exports = { listSources, openSource, openFiles, cloudName, clothingName, bloodName, KINDS };
+/** One RPF the player chose. Its blood textures (by name) are listed, or every
+ *  texture dictionary in it when none has a known name: the player said this is the one. */
+async function pickedRpf(K, file, ctx) {
+  const name = path.basename(file);
+  if (fs.statSync(file).size > MAX_RPF) throw new Error(name + ' is too big to edit here.');
+  const buf = fs.readFileSync(file);
+  const anyYtd = (n) => /\.ytd$/i.test(n);
+  return withKeys(() => {
+    let t;
+    try { t = new RpfTextures(buf, name, K.test); } catch (e) {
+      if (e.code === rpf.NEED_KEYS) throw e;
+      try { t = new RpfTextures(buf, name, anyYtd); } catch (e2) {
+        if (e2.code === rpf.NEED_KEYS) throw e2;
+        throw new Error(name + ' has no textures (.ytd) inside. Pick the RPF your blood FX came in.');
+      }
+    }
+    const rel = '@mods/' + name;
+    return {
+      label: name,
+      items: t.hits.map((h, i) => ({ key: i, name: K.name(h.path), file: h.entry.name, path: h.path, ytd: t.ytds[i] })),
+      replace(key, ti, data) { t.replace(key, ti, data); },
+      outputs() { return t.edited ? { [rel]: t.bytes() } : {}; },
+      /** "Save to folder": the edited RPF itself */
+      files() { return t.edited ? [{ name, bytes: t.bytes() }] : []; },
+    };
+  }, ctx.unlock);
+}
+
+module.exports = { listSources, openSource, openFiles, cloudName, bloodName, KINDS };
