@@ -55,7 +55,7 @@ function mergeForPack(staged, edits, extra = {}) {
 
 /** Install a new pack (switched on unless opts.enable === false), then flip each world
  *  switch. Switches whose files are missing are reported, not fatal. */
-function createPackWithTweaks(mgr, name, edits, tweaks = {}, opts = {}) {
+function createPackWithTweaks(mgr, name, edits, tweaks = {}, opts = {}, readBack = null) {
   const files = mergeForPack(opts.staged || [], edits, opts.extra || {});
   const id = Object.keys(files).length ? mgr.createPack(name, files) : null;
   const applied = [];
@@ -70,9 +70,19 @@ function createPackWithTweaks(mgr, name, edits, tweaks = {}, opts = {}) {
       skipped.push({ id: tid, reason: e.message });
     }
   }
+  // Read what was written back from disk, so "installed" is a fact, not a hope.
+  const verified = [];
+  const failed = [];
+  if (id && readBack && opts.enable !== false) {
+    for (const [rel, v] of Object.entries(opts.extra || {})) {
+      try {
+        if (Buffer.compare(readBack(rel), Buffer.from(v)) === 0) verified.push(rel); else failed.push(rel);
+      } catch (e) { failed.push(rel); }
+    }
+  }
   mgr.log('success', (id ? 'Installed pack "' : 'Applied "') + name + '"');
   mgr.save();
-  return { id, applied, skipped, conflicts };
+  return { id, applied, skipped, conflicts, verified, failed };
 }
 
 module.exports = { describePack, editableTimecycles, mergeForPack, readStaged, createPackWithTweaks };

@@ -47,8 +47,11 @@ class YtdFile {
     if (!t.editable) throw new Error(t.name + ' is ' + t.format + ', which this app cannot write.');
     if (data.length !== t.dataSize) throw new Error('Encoded size mismatch for ' + t.name + ' (' + data.length + ' vs ' + t.dataSize + ')');
     Buffer.from(data.buffer, data.byteOffset, data.byteLength).copy(this.res.data, t.dataOffset);
-    return encodeResource(this.res);
+    this.last = encodeResource(this.res);
+    return this.last;
   }
+
+  ytdBytes() { return this.last || null; }
 }
 
 /** A sky inside an RPF, the way graphics packs ship it for FiveM.app/mods.
@@ -73,6 +76,9 @@ class RpfSky {
     rebuildNested(this.root);
     return rpf.writeRpf(this.root);
   }
+
+  /** The edited skydome.ytd on its own (for citizen/platform/textures). */
+  ytdBytes() { return Buffer.from(this.hit.entry.stored); }
 }
 
 function findSkydome(root, prefix = '') {

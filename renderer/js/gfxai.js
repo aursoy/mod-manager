@@ -12,7 +12,7 @@ const WORLD_KEYS = ['water', 'mountains', 'trees', 'bushes', 'props'];
 export const WORLD_LABEL = { water: 'Water', mountains: 'Black mountains', trees: 'Trees', bushes: 'Bushes', props: 'Props' };
 const GRADE_GROUPS = ['sky', 'sun', 'cloud', 'light', 'ambient', 'fog'];
 
-export const emptySpec = () => ({ name: '', mood: null, sky: null, skyImage: null, grade: null, world: {}, adjust: {}, fps: 0, constant: false });
+export const emptySpec = () => ({ name: '', mood: null, sky: null, skyImage: null, grade: null, world: {}, adjust: {}, fps: 0, constant: false, timeLock: null });
 
 // "add stars", "bigger moon", "no fog"... Each target is found by tag name in the
 // timecycle; `amount` values (intensity, density...) or `size` values are scaled.
@@ -23,6 +23,8 @@ export const ADJUST = {
   clouds: { label: 'Clouds', words: /\bclouds?\b/, tags: /cloud/ },
   fog: { label: 'Fog', words: /\b(fog|haze|mist)\b/, tags: /fog|haze/ },
   bloom: { label: 'Glow', words: /\b(bloom|glow)\b/, tags: /bloom/ },
+  // distance blur (depth of field) hides players far away; any dof_blur value is an amount
+  blur: { label: 'Distance blur', words: /\b(blur|blurry|dof|depth of field)\b/, tags: /dof_blur|blur/, any: true },
 };
 const ADJUST_OPS = ['more', 'less', 'none', 'bigger', 'smaller'];
 const AMOUNT_TAG = /(iten|inten|dens|alpha|opacity|amount|bright|mult|strength|visib)/;
@@ -38,6 +40,8 @@ const VERB = [
 // Each mood is a "midday" sky palette plus an optional grade. `constant` keeps the
 // look at every hour instead of fading to a normal night.
 export const MOODS = {
+  // PvP packs: see players clearly and keep FPS steady. No fog, no glare, punchy colours.
+  pvp: { label: 'PvP', words: /\b(pvp|competitive|clear view|visibility|tryhard|sweaty|crisp)\b/, grade: { saturation: 1.25, brightness: 0.08 }, pvp: true },
   sunny: { label: 'Sunny', words: /\b(sunny|clear|bright day|blue sky|summer)\b/, sky: ['#2f7de1', '#bfe0ff', '#fff3c8', '#ffffff', '#cfe4f5'], grade: { saturation: 1.1, brightness: 0.05 } },
   sunset: { label: 'Sunset', words: /\b(sunset|golden hour|dusk|evening)\b/, constant: true, sky: ['#3a4a8c', '#ff8a3d', '#ffd08a', '#ff9d6b', '#ffb27a'], grade: { tint: '#ffa060', strength: 0.25, saturation: 1.1 } },
   sunrise: { label: 'Sunrise', words: /\b(sunrise|dawn|morning)\b/, constant: true, sky: ['#5b6fb5', '#ffb199', '#ffe3b0', '#ffc9b0', '#f2c1b5'], grade: { tint: '#ffc0a0', strength: 0.18 } },
@@ -60,11 +64,11 @@ const COLOURS = {
 };
 
 export const EXAMPLES = [
-  'Use my picture as the actual sky',
-  'Add more stars and a bigger moon',
-  'Sunset sky, no water, FPS boost',
+  'PvP pack with my picture as the sky',
+  'Always night, purple sky, no fog, max FPS',
+  'Black sky, no sun, no clouds, FPS boost',
+  'Pink neon sky, more stars, bigger moon',
   'Neon cyberpunk night with no trees or bushes',
-  'Realistic colours, keep water, remove black mountains',
   'Max FPS pack: no props, no trees, no bushes, no water',
   'Dark moody overcast, a bit more saturated',
 ];
@@ -195,6 +199,10 @@ export function parsePrompt(text) {
     patch.mood = id;
     if (m.sky) patch.sky = { ...skyOf(m.sky), strength: 0.85 };
     if (m.constant) patch.constant = true;
+    if (m.pvp) {
+      if (patch.fps == null) patch.fps = 2;
+      patch.adjust = { fog: 'none', bloom: 'none', blur: 'none', ...(patch.adjust || {}) };
+    }
     patch.grade = { ...(m.grade || {}) };
     if (patch.grade.strength != null) patch.grade.strength = clamp01(patch.grade.strength * strengthMul);
   }
@@ -223,10 +231,15 @@ export function parsePrompt(text) {
 
   if (/\b(always|all day|forever|permanent(ly)?|constant(ly)?|24\/?7)\b/.test(t)) patch.constant = true;
 
+  // lock the clock: every hour looks like night (or day), the way "only night" PvP packs do it
+  if (/\b(always|only|permanent(ly)?|forever|constant(ly)?|all the time|24\/?7)\s+(at\s+)?night\b|\bno\s+day(time|light)?\b|\bnight\s+only\b|\bonly\s+night\b/.test(t)) patch.timeLock = 'night';
+  else if (/\b(always|only|permanent(ly)?|forever|constant(ly)?|all the time|24\/?7)\s+(in\s+the\s+)?day(time|light)?\b|\bno\s+night\b|\bday\s+only\b/.test(t)) patch.timeLock = 'day';
+
   // what an attached image is for: the sky texture itself, or only its colours
   if (/\b(colou?rs? only|only the colou?rs|just the colou?rs|palette only|just a palette)\b/.test(t)) patch.imageUse = 'colours';
   else if (/\b(actual|real|whole|literal(ly)?|full)\s+sky\b|\bsky\s*(box|texture|dome|image|picture)\b|\b(image|picture|photo|pic)\s+(as|for|in)\s+(the\s+|my\s+|a\s+)?sky\b|\bas\s+(the|my|a)\s+sky\b/.test(t)) patch.imageUse = 'texture';
-  if (/\b(all day|daytime|day and night|day too|always|24\/?7)\b/.test(t)) patch.imageAllDay = true;
+  // the picture shows all the time unless they only want it at night
+  patch.imageAllDay = !/\b(only\s+at\s+night|at\s+night\s+only|just\s+at\s+night)\b/.test(t);
   return patch;
 }
 
@@ -239,6 +252,7 @@ export function mergeSpec(base, patch) {
   if (patch.constant != null) out.constant = patch.constant;
   if (patch.fps != null) out.fps = patch.fps;
   if (patch.skyImage !== undefined) out.skyImage = patch.skyImage;
+  if (patch.timeLock !== undefined) out.timeLock = patch.timeLock;
   out.world = { ...(out.world || {}), ...(patch.world || {}) };
   out.adjust = { ...(out.adjust || {}), ...(patch.adjust || {}) };
   if (patch.grade) {
@@ -282,7 +296,8 @@ export function validateSpec(raw) {
   if (raw.adjust && typeof raw.adjust === 'object') {
     for (const k of Object.keys(ADJUST)) if (ADJUST_OPS.includes(raw.adjust[k])) spec.adjust[k] = raw.adjust[k];
   }
-  if (raw.skyImage && typeof raw.skyImage === 'object') spec.skyImage = { allDay: raw.skyImage.allDay === true };
+  if (raw.skyImage && typeof raw.skyImage === 'object') spec.skyImage = { allDay: raw.skyImage.allDay !== false };
+  if (raw.timeLock === 'night' || raw.timeLock === 'day') spec.timeLock = raw.timeLock;
   return spec;
 }
 
@@ -298,7 +313,8 @@ Schema:
   "fps": 0..3,
   "constant": boolean,
   "adjust": { "stars"?: A, "moon"?: A, "sun"?: A, "clouds"?: A, "fog"?: A, "bloom"?: A }   where A is "more"|"less"|"none"|"bigger"|"smaller",
-  "skyImage": null | { "allDay": boolean }
+  "skyImage": null | { "allDay": boolean },
+  "timeLock": null | "night" | "day"
 }
 
 Rules:
@@ -308,7 +324,10 @@ Rules:
 - "fps": 0 = not asked, 1 = light boost, 2 = boost, 3 = maximum performance.
 - "constant": true only when the look should stay the same all day and night.
 - "adjust": only things the player asked to change ("add stars" = stars more, "bigger moon" = moon bigger, "no fog" = fog none).
-- "skyImage": when an image is attached and the player wants it to BE the sky (the default when an image is attached), set it; "allDay": true only if they want to see the picture in the daytime too. Set null if they only want the image's colours.
+- "skyImage": when an image is attached and the player wants it to BE the sky (the default when an image is attached), set it. "allDay" defaults to true (the picture is always visible); false only if they say "only at night". Set null if they only want the image's colours.
+- "timeLock": "night" for "always night" / "no day" / "only night" packs, "day" for "always day". Otherwise null.
+- "adjust" also takes "blur" (distance blur / depth of field).
+- These players mostly want PvP packs, not realistic ones: clear view, no fog, no glare, vivid colours, high FPS. "pvp pack" means fps 2, adjust fog, bloom and blur "none", grade saturation about 1.25 and brightness about 0.08.
 - Never invent fields. Colours are always 7-character hex strings.`;
 
 /** Pulls the JSON object out of a model reply, tolerating a stray fence or sentence. */
@@ -375,6 +394,7 @@ export function buildPack(spec, files) {
   const adjHits = {};
   const adjust = Object.entries(spec.adjust || {}).filter(([k, op]) => ADJUST[k] && ADJUST_OPS.includes(op));
   let starTags = 0;
+  let locked = 0;
   for (const [rel, xml] of Object.entries(files)) {
     const model = parse(xml);
     for (const sec of model.sections) {
@@ -410,7 +430,8 @@ export function buildPack(spec, files) {
         for (const p of sec.scalars) {
           const n = p.name.toLowerCase();
           if (!ADJUST[k].tags.test(n)) continue;
-          if (sizeOp ? !SIZE_TAG.test(n) : (!AMOUNT_TAG.test(n) && k !== 'stars')) continue;
+          const fits = sizeOp ? SIZE_TAG.test(n) : op === 'none' ? AMOUNT_TAG.test(n) || SIZE_TAG.test(n) || /hdr/.test(n) : AMOUNT_TAG.test(n);
+          if (!fits && k !== 'stars' && !ADJUST[k].any) continue;
           const f = { more: 1.6, less: 0.5, none: 0, bigger: 1.6, smaller: 0.6 }[op];
           const allZero = p.values.every((v) => v === 0);
           p.values = p.values.map((v) => (op === 'more' && allZero ? 1 : v * f));
@@ -437,12 +458,25 @@ export function buildPack(spec, files) {
         }
       }
     }
+    if (spec.timeLock) {
+      for (const p of model.params) {
+        if (p.values.length < 2) continue;
+        const hrs = keyHours(p.values.length);
+        // the darkest (night) or brightest (day) keyframe, by the clock
+        let k = 0;
+        hrs.forEach((h, i) => { if (spec.timeLock === 'night' ? daylight(h) < daylight(hrs[k]) || (daylight(h) === daylight(hrs[k]) && Math.abs(h - 0) < Math.abs(hrs[k] - 0)) : daylight(h) > daylight(hrs[k])) k = i; });
+        const v = p.values[k];
+        p.values = p.values.map(() => v);
+      }
+      locked++;
+    }
     const next = serialize(model);
     if (next !== xml) out[rel] = next;
   }
 
   const fileCount = Object.keys(files).length;
-  if (sky) report.push({ ok: skyCols > 0, text: skyCols > 0 ? `Sky recoloured: ${skyCols} colour tracks across ${fileCount} file(s)` + (spec.constant ? ' (same look all day)' : ' (follows day and night)') : 'No sky colours found in your timecycle files, so the sky was not changed.' });
+  if (sky && !spec.skyImage) report.push({ ok: skyCols > 0, text: skyCols > 0 ? `Sky colours changed in ${fileCount} weather file(s)` : 'No sky colours found in your timecycle files, so the sky was not changed.' });
+  if (spec.timeLock) report.push({ ok: locked > 0, text: locked ? `Always ${spec.timeLock}: every hour of every weather now looks like ${spec.timeLock === 'night' ? 'midnight' : 'midday'}` : 'No timecycle files to lock to ' + spec.timeLock + '.' });
   if (gradeOpts) report.push({ ok: gradeCols > 0, text: gradeCols > 0 ? `Colour grade applied to ${gradeCols} colour tracks` : 'No colours matched the grade.' });
   if (spec.fps > 0) {
     const hit = Object.entries(fpsHits);
@@ -463,7 +497,7 @@ export function buildPack(spec, files) {
   }
   if (spec.skyImage) {
     report.push(starTags
-      ? { ok: true, text: spec.skyImage.allDay ? 'Sky picture set to show all day (experimental: the day sky is darkened so the picture shows through)' : 'Sky picture fades in at night with the stars' }
+      ? { ok: true, text: spec.skyImage.allDay ? 'Day sky darkened and stars turned up, so your picture shows all the time' : 'Your picture shows at night' }
       : { ok: false, text: 'No star values in these timecycles, so the game decides when the sky picture shows.' });
   }
 
@@ -485,13 +519,14 @@ export function describeSpec(spec) {
   if (spec.constant) chips.push('Same all day');
   for (const k of WORLD_KEYS) if (spec.world && spec.world[k]) chips.push((spec.world[k] === 'remove' ? 'No ' : 'Keep ') + WORLD_LABEL[k].toLowerCase());
   for (const [k, op] of Object.entries(spec.adjust || {})) if (ADJUST[k]) chips.push(ADJUST[k].label + ': ' + (op === 'none' ? 'off' : op));
-  if (spec.skyImage) chips.push(spec.skyImage.allDay ? 'Picture sky (all day)' : 'Picture sky');
+  if (spec.skyImage) chips.push(spec.skyImage.allDay ? 'Picture sky (all the time)' : 'Picture sky (night)');
+  if (spec.timeLock) chips.push('Always ' + spec.timeLock);
   if (spec.fps) chips.push('FPS boost ' + spec.fps);
   return chips;
 }
 
 export function isEmptySpec(spec) {
-  return !spec.sky && !spec.skyImage && !spec.grade && !spec.fps && !Object.keys(spec.world || {}).length && !Object.keys(spec.adjust || {}).length;
+  return !spec.sky && !spec.skyImage && !spec.grade && !spec.fps && !spec.timeLock && !Object.keys(spec.world || {}).length && !Object.keys(spec.adjust || {}).length;
 }
 
 export function packName(spec) {

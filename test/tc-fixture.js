@@ -40,6 +40,11 @@ ${colour('light_natural_amb_down_col', [0.3, 0.35, 0.45], k)}
       <sky_moon_iten>1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0</sky_moon_iten>
       <sky_moon_disc_size>1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0</sky_moon_disc_size>
       <fog_start>20 20 20 20 20 20 20 20 20</fog_start>
+      <fog_density>0.4 0.4 0.4 0.4 0.4 0.4 0.4 0.4 0.4</fog_density>
+      <postfx_intensity_bloom>0.6 0.6 0.6 0.6 0.6 0.6 0.6 0.6 0.6</postfx_intensity_bloom>
+      <cloud_base_strength>1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0</cloud_base_strength>
+      <dof_far>800 800 800 800 800 800 800 800 800</dof_far>
+      <dof_blur_far>0.5 0.5 0.5 0.5 0.5 0.5 0.5 0.5 0.5</dof_blur_far>
       <sky_sun_disc_size>2.5 2.5 2.5 2.5 2.5 2.5 2.5 2.5 2.5</sky_sun_disc_size>
     </region>`;
 }
@@ -63,11 +68,14 @@ ${names.map(cycle).join('\n')}
 // Minimal gen8 texture dictionary (.ytd file bytes) with one DXT1 texture per name.
 function buildYtd(names, w = 64, h = 64) {
   const zlib = require('zlib');
+  const size = Math.max(8, (w / 4) * (h / 4) * 8);
+  // gfx page: the smallest 0x200 << n that holds every texture
+  let ss = 0;
+  while ((0x200 << ss) < size * names.length) ss++;
   const sys = Buffer.alloc(0x2000);
-  const gfx = Buffer.alloc(0x4000);
+  const gfx = Buffer.alloc(0x200 << ss);
   const S = 0x50000000, G = 0x60000000;
   sys.writeUInt32LE(S + 0x40, 0x30); sys.writeUInt16LE(names.length, 0x38); sys.writeUInt16LE(names.length, 0x3a);
-  const size = (w / 4) * (h / 4) * 8;
   names.forEach((name, i) => {
     const t = 0x100 + i * 0x100;
     sys.writeUInt32LE(S + t, 0x40 + i * 8);
@@ -79,7 +87,7 @@ function buildYtd(names, w = 64, h = 64) {
     gfx.fill(0x11 * (i + 1), i * size, (i + 1) * size);
   });
   const sysFlags = (1 << 27) | 4;
-  const gfxFlags = ((13 << 28) | (1 << 27) | 5) >>> 0;
+  const gfxFlags = ((13 << 28) | (1 << 27) | ss) >>> 0;
   const hdr = Buffer.alloc(16);
   hdr.writeUInt32LE(0x37435352, 0); hdr.writeUInt32LE(13, 4); hdr.writeUInt32LE(sysFlags, 8); hdr.writeUInt32LE(gfxFlags, 12);
   return Buffer.concat([hdr, zlib.deflateRawSync(Buffer.concat([sys, gfx]))]);
