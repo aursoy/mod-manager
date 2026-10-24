@@ -1,0 +1,315 @@
+'use strict';
+const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
+const path = require('path');
+const fs = require('fs');
+const { CitizenManager } = require('./src/core/citizen');
+const { GunPack } = require('./src/core/gunpack');
+const { SoundPack } = require('./src/core/soundpack');
+const { DiscordRpc } = require('./src/core/discord');
+const extras = require('./src/core/extras');
+const rpf = require('./src/core/rpf');
+const { GtaKeys, findAesKey, findGtaExes } = require('./src/core/ngcrypto');
+
+app.setName('Kt Mod Manager');
+if (process.env.KT_USERDATA) app.setPath('userData', process.env.KT_USERDATA);
+
+let win;
+let mgr;
+let gun = null;
+const sounds = new SoundPack();
+const discord = new DiscordRpc();
+const startedAt = Date.now();
+
+function createWindow() {
+  win = new BrowserWindow({
+    width: 1440,
+    height: 900,
+    minWidth: 1100,
+    minHeight: 700,
+    frame: false,
+    title: 'Kt Mod Manager',
+    backgroundColor: '#000000',
+    show: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+    },
+  });
+  win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+  win.once('ready-to-show', () => win.show());
+  if (process.env.KT_SHOT) runShots(process.env.KT_SHOT);
+  win.on('maximize', () => win.webContents.send('win:state', { maximized: true }));
+  win.on('unmaximize', () => win.webContents.send('win:state', { maximized: false }));
+}
+
+// Dev-only: KT_SHOT=<dir> walks the pages and saves screenshots.
+function runShots(dir) {
+  win.webContents.setBackgroundThrottling(false);
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const shot = async (name) => {
+    const img = await win.webContents.capturePage();
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, name + '.png'), img.toPNG());
+  };
+  win.webContents.on('console-message', (_e, level, msg) => { if (level >= 2) console.log('[renderer]', msg); });
+  win.webContents.once('did-finish-load', async () => {
+    const js = (code) => win.webContents.executeJavaScript(code).catch((e) => console.log('[js error]', e.message));
+    const nav = (p) => js(`document.querySelector('#nav a[data-page="${p}"]').click()`);
+    if (process.env.KT_CITIZEN) await js(`window.api.call('citizen:set', ${JSON.stringify(process.env.KT_CITIZEN)})`);
+    await wait(800); await shot('0-splash');
+    await wait(3200); await shot('1-home');
+    for (const p of (process.env.KT_PAGES || 'graphics,world,mods,presets,cache,backups,settings').split(',')) {
+      await nav(p); await wait(1100); await shot('2-' + p);
+    }
+    await js(`document.getElementById('profile-card').click()`);
+    await wait(900); await shot('3-profile');
+    await js(`document.querySelector('.modal-back')?.click()`);
+    await wait(500);
+    if (process.env.KT_GUN) {
+      await nav('gun'); await wait(700);
+      await js(`import('./js/gunlab.js').then(m => m.openGunFile(${JSON.stringify(process.env.KT_GUN)}))`);
+      await wait(Number(process.env.KT_GUN_WAIT || 3000)); await shot('4-gun');
+      await js(`(() => { document.querySelector('#gun-swatches .sw[data-hex="#9b5cff"]').click();
+        document.querySelector('#inspector-tabs .tab[data-tab=text]').click();
+        document.getElementById('text-add').click(); })()`);
+      await wait(1200); await shot('5-gun-edit');
+      await js(`document.querySelector('.vt[data-view="2d"]').click()`);
+      await wait(700);
+      const perf = await js(`import('./js/gunlab.js').then(m => m.perfProbe())`);
+      console.log('[perf]', JSON.stringify(perf));
+      await shot('6-gun-2d');
+    }
+    if (process.env.KT_SOUND) {
+      await nav('sound'); await wait(700);
+      js(`import('./js/soundlab.js').then(m => m.openSoundFiles([${JSON.stringify(process.env.KT_SOUND)}]))`);
+      await wait(1500);
+      if (process.env.KT_UNLOCK) {
+        await shot('7a-unlock-prompt');
+        await js(`document.querySelector('.modal-back [data-r="1"]')?.click()`);
+        await wait(3500); await shot('7b-unlocking');
+        await wait(9000);
+      }
+      await js(`document.querySelector('#bank-list li[data-id]')?.click()`);
+      await wait(900);
+      await js(`document.querySelector('#stream-list li[data-id]')?.click()`);
+      await wait(900); await shot('7-sound');
+    }
+    app.quit();
+  });
+}
+
+// Wrap handlers so the renderer always gets { ok, data | error }.
+function handle(channel, fn) {
+  ipcMain.handle(channel, async (_e, ...args) => {
+    try {
+      return { ok: true, data: await fn(...args) };
+    } catch (err) {
+      const msg = err && err.message ? err.message : String(err);
+      return { ok: false, error: (err && err.code === rpf.NEED_KEYS ? '[NEED_KEYS] ' : '') + msg };
+    }
+  });
+}
+
+function appPath() {
+  const info = mgr.info();
+  if (!info.citizenPath) throw new Error('Select your citizen folder first.');
+  return path.dirname(info.citizenPath);
+}
+
+app.whenReady().then(() => {
+  mgr = new CitizenManager(path.join(app.getPath('userData'), 'data'));
+
+  // ----- encrypted RPF keys (read from the user's own GTA5.exe, cached) -----
+  const keyFile = path.join(app.getPath('userData'), 'data', 'gta-keys.json');
+  try {
+    const cached = JSON.parse(fs.readFileSync(keyFile, 'utf8'));
+    rpf.setKeys(new GtaKeys(Buffer.from(cached.aes, 'hex')));
+  } catch (e) { /* not unlocked yet */ }
+  handle('keys:status', () => ({ ready: !!rpf.getKeys(), exes: findGtaExes() }));
+  handle('keys:pickExe', async () => {
+    const r = await dialog.showOpenDialog(win, { title: 'Select GTA5.exe', properties: ['openFile'], filters: [{ name: 'GTA V', extensions: ['exe'] }] });
+    return r.canceled ? null : r.filePaths[0];
+  });
+  handle('keys:unlock', async (exe) => {
+    const aes = await findAesKey(exe, (p) => win.webContents.send('keys:progress', p));
+    rpf.setKeys(new GtaKeys(aes));
+    fs.mkdirSync(path.dirname(keyFile), { recursive: true });
+    fs.writeFileSync(keyFile, JSON.stringify({ aes: aes.toString('hex'), exe }));
+    mgr.log('success', 'Unlocked encrypted RPFs using ' + path.basename(exe));
+    mgr.save();
+    return true;
+  });
+
+  handle('win:minimize', () => win.minimize());
+  handle('win:maximize', () => (win.isMaximized() ? win.unmaximize() : win.maximize()));
+  handle('win:close', () => win.close());
+
+  // ----- citizen -----
+  handle('citizen:info', () => mgr.info());
+  handle('citizen:autodetect', () => CitizenManager.autodetect());
+  handle('citizen:set', (dir) => mgr.setCitizen(dir));
+  handle('citizen:pick', async () => {
+    const r = await dialog.showOpenDialog(win, { title: 'Select your citizen folder', properties: ['openDirectory'] });
+    return r.canceled ? null : r.filePaths[0];
+  });
+  handle('citizen:open', () => shell.openPath(mgr.requireCitizen()));
+  handle('citizen:launch', () => {
+    const info = mgr.info();
+    if (!info.fiveMExe) throw new Error('FiveM.exe not found next to FiveM.app.');
+    return shell.openPath(info.fiveMExe);
+  });
+  handle('citizen:history', () => mgr.state.history);
+
+  // ----- tweaks / packs -----
+  handle('tweaks:list', () => mgr.listTweaks());
+  handle('tweaks:set', (id, on) => mgr.setTweak(id, on));
+  handle('tweaks:import', (id, sources) => mgr.importFiles(id, sources));
+  handle('tweaks:addCustom', (name, sources, kind) => mgr.addCustom(name, sources, kind));
+  handle('tweaks:removeCustom', (id) => mgr.removeCustom(id));
+  handle('pick:files', async (opts = {}) => {
+    const props = opts.directory ? ['openDirectory'] : ['openFile', 'multiSelections'];
+    const r = await dialog.showOpenDialog(win, { title: opts.title || 'Select files', properties: props, filters: opts.filters });
+    return r.canceled ? null : r.filePaths;
+  });
+
+  handle('colour:scan', () => mgr.scanTimecycle());
+  handle('colour:apply', (opts) => mgr.applyColour(opts));
+  handle('colour:reset', () => mgr.resetColour());
+  handle('colour:state', () => mgr.state.colour);
+  handle('colour:activate', (rel) => mgr.activateTimecycle(rel));
+
+  handle('backups:list', () => mgr.listBackups());
+  handle('backups:restoreAll', () => mgr.restoreAll());
+
+  // ----- mods folder -----
+  const modsPath = () => path.join(appPath(), 'mods');
+  handle('mods:list', () => ({ path: modsPath(), mods: extras.listMods(modsPath()) }));
+  handle('mods:set', (name, on) => { extras.setModEnabled(modsPath(), name, on); return extras.listMods(modsPath()); });
+  handle('mods:add', (files) => { const added = extras.addMods(modsPath(), files); return { added, mods: extras.listMods(modsPath()) }; });
+  handle('mods:trash', async (file) => { await shell.trashItem(path.join(modsPath(), file)); return extras.listMods(modsPath()); });
+  handle('mods:open', () => { fs.mkdirSync(modsPath(), { recursive: true }); return shell.openPath(modsPath()); });
+
+  // ----- cache -----
+  handle('cache:info', () => extras.cacheInfo(appPath()));
+  handle('cache:clear', async (ids) => { const freed = await extras.clearCache(appPath(), ids); mgr.log('success', 'Cleared ' + (freed / 1048576).toFixed(0) + ' MB of FiveM cache'); mgr.save(); return freed; });
+
+  // ----- presets -----
+  const enabledMods = () => { try { return extras.listMods(modsPath()).filter((m) => m.enabled).map((m) => m.name); } catch (e) { return null; } };
+  handle('presets:list', () => mgr.listPresets());
+  handle('presets:save', (name) => mgr.savePreset(name, enabledMods()));
+  handle('presets:delete', (id) => { mgr.deletePreset(id); return mgr.listPresets(); });
+  handle('presets:apply', (id) => {
+    const p = mgr.applyPreset(id);
+    if (p.mods) {
+      for (const m of extras.listMods(modsPath())) extras.setModEnabled(modsPath(), m.name, p.mods.includes(m.name));
+    }
+    return p;
+  });
+
+  // ----- profile / discord -----
+  handle('profile:get', () => ({ ...mgr.getProfile(), discordLive: !!discord.sock }));
+  handle('profile:set', (patch) => mgr.setProfile(patch));
+  handle('profile:pickAvatar', async () => {
+    const r = await dialog.showOpenDialog(win, { title: 'Choose avatar', properties: ['openFile'], filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp'] }] });
+    if (r.canceled) return null;
+    const f = r.filePaths[0];
+    if (fs.statSync(f).size > 4 * 1048576) throw new Error('Pick an image under 4 MB.');
+    const ext = path.extname(f).slice(1).toLowerCase().replace('jpg', 'jpeg');
+    return 'data:image/' + ext + ';base64,' + fs.readFileSync(f).toString('base64');
+  });
+  handle('discord:connect', async (clientId) => {
+    const user = await discord.connect(clientId);
+    mgr.setProfile({ discordClientId: String(clientId), discord: user });
+    discord.setActivity('Modding FiveM', 'Kt Mod Manager', startedAt);
+    return user;
+  });
+  handle('discord:disconnect', () => { discord.disconnect(); return mgr.setProfile({ discord: null }); });
+  handle('discord:activity', (details, state) => discord.setActivity(details, state, startedAt));
+
+  // ----- gun lab -----
+  handle('gun:open', (file) => {
+    gun = new GunPack(file);
+    return gun.describe();
+  });
+  handle('gun:pick', async () => {
+    const r = await dialog.showOpenDialog(win, {
+      title: 'Open gun archive',
+      properties: ['openFile'],
+      filters: [{ name: 'GTA files', extensions: ['rpf', 'ytd', 'ydr'] }],
+    });
+    return r.canceled ? null : r.filePaths[0];
+  });
+  handle('gun:export', async (edits, opts = {}) => {
+    if (!gun) throw new Error('Open a gun file first.');
+    gun.applyEdits(edits.map((e) => ({ ...e, data: Buffer.from(e.data) })));
+    let out = opts.path;
+    if (opts.toMods) out = path.join(appPath(), 'mods', path.basename(gun.filePath));
+    if (!out) {
+      const ext = gun.kind.slice(1);
+      const r = await dialog.showSaveDialog(win, {
+        title: 'Export gun',
+        defaultPath: path.join(path.dirname(gun.filePath), path.basename(gun.filePath, gun.kind) + '_custom' + gun.kind),
+        filters: [{ name: ext.toUpperCase(), extensions: [ext] }],
+      });
+      if (r.canceled) return null;
+      out = r.filePath;
+    }
+    if (path.resolve(out) === path.resolve(gun.filePath)) fs.copyFileSync(gun.filePath, gun.filePath + '.bak');
+    const bytes = gun.write(out);
+    mgr.log('success', 'Exported gun to ' + out);
+    mgr.save();
+    return { path: out, bytes };
+  });
+
+  // ----- sound lab -----
+  handle('sound:pick', async () => {
+    const r = await dialog.showOpenDialog(win, { title: 'Open sound RPFs (WEAPONS_PLAYER, RESIDENT...)', properties: ['openFile', 'multiSelections'], filters: [{ name: 'Audio archives', extensions: ['rpf'] }] });
+    return r.canceled ? null : r.filePaths;
+  });
+  handle('sound:pickAudio', async () => {
+    const r = await dialog.showOpenDialog(win, { title: 'Choose a sound', properties: ['openFile'], filters: [{ name: 'Audio', extensions: ['wav', 'mp3', 'ogg', 'flac', 'm4a', 'aac', 'webm'] }] });
+    if (r.canceled) return null;
+    const f = r.filePaths[0];
+    return { name: path.basename(f), data: new Uint8Array(fs.readFileSync(f)) };
+  });
+  handle('sound:readAudio', (file) => ({ name: path.basename(file), data: new Uint8Array(fs.readFileSync(file)) }));
+  handle('sound:open', (files) => { let d; for (const f of files) d = sounds.open(f); return d; });
+  handle('sound:close', (id) => sounds.close(id));
+  handle('sound:state', () => sounds.describe());
+  handle('sound:streams', (bankId) => sounds.streams(bankId));
+  handle('sound:pcm', (bankId, streamId, original) => sounds.pcm(bankId, streamId, original));
+  handle('sound:replace', (bankId, streamId, pcm, rate) => sounds.replace(bankId, streamId, pcm, rate));
+  handle('sound:revert', (bankId, streamId) => sounds.revert(bankId, streamId));
+  handle('sound:export', async (archiveId, opts = {}) => {
+    const a = sounds.archives.find((x) => x.id === archiveId);
+    if (!a) throw new Error('Unknown archive');
+    const bytes = sounds.build(archiveId);
+    let out;
+    if (opts.toCitizen) {
+      // Journaled like every other citizen write, so Backups can undo it.
+      const rel = 'platform/audio/sfx/' + a.name;
+      mgr.writeFile(rel, bytes, 'sounds');
+      mgr.log('success', 'Installed sound pack ' + a.name);
+      mgr.save();
+      out = path.join(mgr.requireCitizen(), ...rel.split('/'));
+    } else {
+      const r = await dialog.showSaveDialog(win, { title: 'Export sound pack', defaultPath: a.file.replace(/\.rpf$/i, '_kt.rpf'), filters: [{ name: 'RPF', extensions: ['rpf'] }] });
+      if (r.canceled) return null;
+      out = r.filePath;
+      fs.writeFileSync(out, bytes);
+    }
+    return { path: out, bytes: bytes.length };
+  });
+
+  handle('shell:reveal', (p) => shell.showItemInFolder(p));
+  handle('shell:external', (url) => {
+    if (!/^https:\/\/(discord\.com|discord\.dev)\//.test(url)) throw new Error('Blocked URL');
+    return shell.openExternal(url);
+  });
+
+  createWindow();
+});
+
+app.on('window-all-closed', () => { discord.disconnect(); app.quit(); });

@@ -1,0 +1,420 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://cdn.discordapp.com; media-src 'self' blob: data:; font-src 'self' data:;" />
+  <title>Kt Mod Manager</title>
+  <link rel="stylesheet" href="../node_modules/@fontsource-variable/inter/index.css" />
+  <link rel="stylesheet" href="../node_modules/@fontsource/jetbrains-mono/400.css" />
+  <link rel="stylesheet" href="css/styles.css" />
+  <script type="importmap">
+    { "imports": {
+      "three": "../node_modules/three/build/three.module.js",
+      "three/addons/": "../node_modules/three/examples/jsm/"
+    } }
+  </script>
+</head>
+<body>
+  <!-- splash -->
+  <div id="splash">
+    <div class="splash-inner">
+      <div class="splash-mark"><span></span><span></span><span></span></div>
+      <h1 class="splash-word" data-text="KT"></h1>
+      <div class="splash-bar"><i></i></div>
+      <p class="splash-sub">mod manager</p>
+    </div>
+  </div>
+
+  <canvas id="bg"></canvas>
+  <div class="grain"></div>
+  <div class="cursor-glow"></div>
+
+  <div id="app">
+    <header class="titlebar">
+      <div class="brand"><div class="brand-mark"></div><span>KT MOD MANAGER</span><em id="crumb">Dashboard</em></div>
+      <div class="title-actions">
+        <button class="icon-btn" id="bell" title="Notifications"><i data-icon="bell"></i><b class="badge" id="bell-badge"></b></button>
+        <div class="win-controls">
+          <button data-win="minimize" title="Minimize"><i data-icon="minus"></i></button>
+          <button data-win="maximize" title="Maximize"><i data-icon="square"></i></button>
+          <button data-win="close" class="close" title="Close"><i data-icon="x"></i></button>
+        </div>
+      </div>
+    </header>
+
+    <aside class="sidebar">
+      <nav id="nav">
+        <div class="nav-pill"></div>
+        <p class="nav-sec">Manage</p>
+        <a data-page="home" class="active"><i data-icon="grid"></i><span>Dashboard</span></a>
+        <a data-page="graphics"><i data-icon="palette"></i><span>Graphics</span></a>
+        <a data-page="world"><i data-icon="globe"></i><span>World</span></a>
+        <a data-page="mods"><i data-icon="package"></i><span>Mods</span></a>
+        <a data-page="presets"><i data-icon="bookmark"></i><span>Presets</span></a>
+        <p class="nav-sec">Create</p>
+        <a data-page="gun"><i data-icon="crosshair"></i><span>Gun Lab</span><small>3D</small></a>
+        <a data-page="sound"><i data-icon="music"></i><span>Sound Lab</span><small>New</small></a>
+        <p class="nav-sec">System</p>
+        <a data-page="cache"><i data-icon="broom"></i><span>Cache</span></a>
+        <a data-page="backups"><i data-icon="shield"></i><span>Backups</span></a>
+        <a data-page="settings"><i data-icon="sliders"></i><span>Settings</span></a>
+      </nav>
+      <div class="side-foot">
+        <button class="profile-card" id="profile-card" title="Edit profile">
+          <div class="pf-avatar" id="pf-avatar"><span id="pf-initials">KT</span><i class="pf-dot" id="pf-dot"></i></div>
+          <div class="pf-text"><b id="pf-name">Set up profile</b><small id="pf-sub">Connect Discord</small></div>
+          <i data-icon="settings"></i>
+        </button>
+        <div class="citizen-line" id="status-chip"><span class="dot"></span><small id="status-sub">No citizen linked</small></div>
+      </div>
+    </aside>
+
+    <main id="pages">
+      <!-- HOME -->
+      <section class="page active" data-page="home">
+        <div class="page-head">
+          <div>
+            <p class="eyebrow">Overview</p>
+            <h2 class="headline">Your game, <span class="outline">your rules.</span></h2>
+          </div>
+          <div class="head-actions">
+            <button class="btn ghost" id="open-folder"><i data-icon="folder"></i>Open folder</button>
+            <button class="btn primary" id="launch"><i data-icon="play"></i>Launch FiveM</button>
+          </div>
+        </div>
+
+        <div class="grid home-grid">
+          <div class="card drop span-2" id="citizen-drop">
+            <div class="drop-art"><div class="ring"></div><div class="ring r2"></div><i data-icon="folder-in"></i></div>
+            <div class="drop-text">
+              <h3 id="citizen-title">Drop your citizen folder</h3>
+              <p id="citizen-path">Drag <code>FiveM.app/citizen</code> here, or browse. Every change is backed up automatically.</p>
+            </div>
+            <div class="drop-actions">
+              <button class="btn ghost sm" id="autodetect"><i data-icon="search"></i>Auto-detect</button>
+              <button class="btn primary sm" id="browse-citizen"><i data-icon="folder"></i>Browse</button>
+            </div>
+          </div>
+
+          <div class="card stat"><p>Files</p><h4 data-count id="st-files">0</h4><span>in citizen</span></div>
+          <div class="card stat"><p>Size</p><h4 id="st-size">0 MB</h4><span>on disk</span></div>
+          <div class="card stat"><p>Backups</p><h4 data-count id="st-backups">0</h4><span>files protected</span></div>
+          <div class="card stat"><p>Timecycle</p><h4 data-count id="st-tc">0</h4><span>gradable files</span></div>
+
+          <div class="card span-2 quick">
+            <h3>Quick actions</h3>
+            <div class="quick-row">
+              <button class="tile" data-goto="graphics"><i data-icon="palette"></i><b>Colour grade</b><small>Tint your pack</small></button>
+              <button class="tile" data-goto="world"><i data-icon="droplet"></i><b>Water</b><small>Remove / restore</small></button>
+              <button class="tile" data-goto="world"><i data-icon="mountain"></i><b>Mountains</b><small>Black mountain toggle</small></button>
+              <button class="tile" data-goto="gun"><i data-icon="crosshair"></i><b>Gun Lab</b><small>Skin weapons</small></button>
+              <button class="tile" data-goto="sound"><i data-icon="music"></i><b>Sound Lab</b><small>Gun &amp; kill sounds</small></button>
+              <button class="tile" data-goto="cache"><i data-icon="broom"></i><b>Clean cache</b><small>Fix texture loss</small></button>
+            </div>
+          </div>
+
+          <div class="card span-2 activity">
+            <h3>Activity</h3>
+            <ul id="activity" class="feed"></ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- GRAPHICS -->
+      <section class="page" data-page="graphics">
+        <div class="page-head">
+          <div>
+            <p class="eyebrow">Graphics</p>
+            <h2 class="headline">Colour <span class="outline">grading.</span></h2>
+          </div>
+        </div>
+        <div class="grid gfx-grid">
+          <div class="card grade">
+            <!-- Timecycle Cycler -->
+            <div class="tc-cycler" id="tc-cycler">
+              <div class="tc-header">
+                <span class="tc-badge"><i data-icon="file"></i> Timecycle XML</span>
+                <button class="tc-act-btn" id="tc-activate-btn" title="Sets this timecycle as w_extrasunny.xml and w_clear.xml in FiveM"><i data-icon="zap"></i> Set as FiveM Weather</button>
+              </div>
+              <div class="tc-controls">
+                <button class="btn icon-btn sm" id="tc-prev" title="Previous XML file"><i data-icon="chevron-left"></i></button>
+                <div class="tc-select-wrap">
+                  <select id="tc-select" class="tc-select">
+                    <option value="__all__">All timecycle files</option>
+                  </select>
+                  <div class="tc-meta" id="tc-meta">Select a timecycle file to inspect and grade</div>
+                </div>
+                <button class="btn icon-btn sm" id="tc-next" title="Next XML file"><i data-icon="chevron-right"></i></button>
+              </div>
+            </div>
+
+            <div class="grade-preview" id="grade-preview">
+              <div class="gp-sky"></div><div class="gp-sun"></div><div class="gp-hills"></div><div class="gp-city"></div>
+              <div class="gp-label"><b id="grade-hex">#FFFFFF</b><small id="grade-files">0 timecycle files</small></div>
+            </div>
+            <div class="swatches" id="swatches"></div>
+            <div class="ctrl-row">
+              <label class="field colour-field"><span>Custom</span><input type="color" id="grade-color" value="#ffffff" /></label>
+              <div class="slider-field"><span>Strength <b id="strength-val">50%</b></span><input type="range" id="grade-strength" min="0" max="100" value="50" /></div>
+              <div class="slider-field"><span>Brightness <b id="bright-val">0</b></span><input type="range" id="grade-bright" min="-100" max="100" value="0" /></div>
+            </div>
+            <div class="chips" id="grade-groups">
+              <button class="chip on" data-group="sky">Sky</button>
+              <button class="chip on" data-group="light">Sun &amp; light</button>
+              <button class="chip on" data-group="fog">Fog</button>
+              <button class="chip on" data-group="ambient">Ambient</button>
+              <button class="chip on" data-group="postfx">Post FX</button>
+            </div>
+            <div class="row-end">
+              <button class="btn ghost" id="grade-reset"><i data-icon="undo"></i>Reset</button>
+              <button class="btn primary" id="grade-apply"><i data-icon="check"></i>Apply grade</button>
+            </div>
+          </div>
+
+          <div class="card packs">
+            <h3>Graphics packs</h3>
+            <div class="mini-drop" id="pack-drop"><i data-icon="upload"></i><div><b>Drop a pack</b><small>Folder or .zip containing citizen/</small></div></div>
+            <ul class="list" id="pack-list"></ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- WORLD -->
+      <section class="page" data-page="world">
+        <div class="page-head">
+          <div>
+            <p class="eyebrow">World</p>
+            <h2 class="headline">Shape the <span class="outline">map.</span></h2>
+          </div>
+          <div class="head-actions">
+            <button class="btn ghost" id="add-tweak"><i data-icon="plus"></i>Custom tweak</button>
+          </div>
+        </div>
+        <div class="grid world-grid" id="world-grid"></div>
+      </section>
+
+      <!-- GUN LAB -->
+      <section class="page" data-page="gun">
+        <div class="gun-empty" id="gun-empty">
+          <div class="gun-drop" id="gun-drop">
+            <div class="reticle"><span></span><span></span><span></span><span></span><i></i></div>
+            <h2 class="headline">Gun <span class="outline">Lab.</span></h2>
+            <p>Drop a weapon <code>.rpf</code>, <code>.ytd</code> or <code>.ydr</code>. See it in 3D, recolour it, stamp text on it, export.</p>
+            <button class="btn primary" id="gun-browse"><i data-icon="upload"></i>Open weapon file</button>
+          </div>
+        </div>
+
+        <div class="gun-lab hidden" id="gun-lab">
+          <div class="lab-left card">
+            <div class="lab-file"><i data-icon="box"></i><div><b id="gun-file">file.rpf</b><small id="gun-meta"></small></div></div>
+            <p class="label">Textures</p>
+            <ul class="tex-list" id="tex-list"></ul>
+            <button class="btn ghost sm full" id="gun-close"><i data-icon="x"></i>Close file</button>
+          </div>
+
+          <div class="lab-view card">
+            <div class="view-tabs">
+              <button class="vt on" data-view="3d">3D</button>
+              <button class="vt" data-view="2d">Texture</button>
+              <div class="vt-pill"></div>
+            </div>
+            <div class="view-tools">
+              <button class="icon-btn" id="view-spin" title="Auto-rotate"><i data-icon="rotate"></i></button>
+              <button class="icon-btn" id="view-reset" title="Reset camera"><i data-icon="target"></i></button>
+              <button class="icon-btn" id="view-light" title="Toggle studio light"><i data-icon="sun"></i></button>
+            </div>
+            <div class="viewport" id="viewport"></div>
+            <div class="tex-view hidden" id="tex-view"><canvas id="tex-canvas"></canvas></div>
+            <div class="place-hint hidden" id="place-hint"><i data-icon="target"></i>Click on the gun to place text</div>
+          </div>
+
+          <div class="lab-right card">
+            <div class="tabs" id="inspector-tabs">
+              <button class="tab on" data-tab="colour">Colour</button>
+              <button class="tab" data-tab="text">Text</button>
+              <button class="tab" data-tab="export">Export</button>
+              <div class="tab-pill"></div>
+            </div>
+
+            <div class="tab-body" data-tab="colour">
+              <div class="slider-field"><span>Hue <b data-out="hue">0°</b></span><input type="range" data-fx="hue" min="-180" max="180" value="0" /></div>
+              <div class="slider-field"><span>Saturation <b data-out="sat">100%</b></span><input type="range" data-fx="sat" min="0" max="300" value="100" /></div>
+              <div class="slider-field"><span>Brightness <b data-out="bright">100%</b></span><input type="range" data-fx="bright" min="0" max="250" value="100" /></div>
+              <div class="slider-field"><span>Contrast <b data-out="contrast">100%</b></span><input type="range" data-fx="contrast" min="0" max="250" value="100" /></div>
+              <p class="label">Paint</p>
+              <div class="gun-swatches" id="gun-swatches"></div>
+              <div class="ctrl-row tight">
+                <label class="field colour-field"><span>Colour</span><input type="color" data-fx="tint" value="#ffffff" /></label>
+                <div class="slider-field"><span>Amount <b data-out="tintAmt">0%</b></span><input type="range" data-fx="tintAmt" min="0" max="100" value="0" /></div>
+              </div>
+              <div class="seg" data-fx-seg="mode">
+                <button data-v="color" class="on">Colorize</button><button data-v="multiply">Multiply</button><button data-v="overlay">Overlay</button><button data-v="screen">Screen</button>
+                <i class="seg-thumb"></i>
+              </div>
+              <div class="row-end"><button class="btn ghost sm" id="fx-reset"><i data-icon="undo"></i>Reset texture</button></div>
+            </div>
+
+            <div class="tab-body hidden" data-tab="text">
+              <div class="row-between"><p class="label">Layers</p><button class="btn primary sm" id="text-add"><i data-icon="plus"></i>Add text</button></div>
+              <ul class="layer-list" id="layer-list"></ul>
+              <div id="layer-editor" class="hidden">
+                <label class="field"><span>Text</span><input type="text" data-tx="text" maxlength="60" /></label>
+                <label class="field"><span>Font</span>
+                  <select data-tx="font">
+                    <option>Inter Variable</option><option>Impact</option><option>Arial Black</option><option>Bahnschrift</option><option>JetBrains Mono</option><option>Georgia</option><option>Segoe Script</option>
+                  </select>
+                </label>
+                <div class="slider-field"><span>Size <b data-txo="size"></b></span><input type="range" data-tx="size" min="8" max="400" /></div>
+                <div class="slider-field"><span>3D depth <b data-txo="depth"></b></span><input type="range" data-tx="depth" min="0" max="30" /></div>
+                <div class="slider-field"><span>Rotation <b data-txo="rot"></b></span><input type="range" data-tx="rot" min="-180" max="180" /></div>
+                <div class="slider-field"><span>Outline <b data-txo="outline"></b></span><input type="range" data-tx="outline" min="0" max="20" /></div>
+                <div class="slider-field"><span>Glow <b data-txo="glow"></b></span><input type="range" data-tx="glow" min="0" max="60" /></div>
+                <div class="ctrl-row tight three">
+                  <label class="field colour-field"><span>Fill</span><input type="color" data-tx="fill" /></label>
+                  <label class="field colour-field"><span>Side</span><input type="color" data-tx="side" /></label>
+                  <label class="field colour-field"><span>Outline</span><input type="color" data-tx="stroke" /></label>
+                </div>
+                <div class="row-between">
+                  <button class="btn ghost sm" id="text-place"><i data-icon="target"></i>Place on gun</button>
+                  <button class="btn ghost sm danger" id="text-del"><i data-icon="trash"></i>Delete</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="tab-body hidden" data-tab="export">
+              <div class="export-sum" id="export-sum"></div>
+              <button class="btn primary full big" id="export-save"><i data-icon="download"></i>Export file</button>
+              <button class="btn ghost full" id="export-mods"><i data-icon="zap"></i>Install to FiveM mods folder</button>
+              <p class="fine">Textures are re-encoded in their original format and size, so the archive stays game-ready. Export never touches your original file.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- MODS -->
+      <section class="page" data-page="mods">
+        <div class="page-head">
+          <div><p class="eyebrow">Mods folder</p><h2 class="headline">Every RPF, <span class="outline">one switch.</span></h2></div>
+          <div class="head-actions">
+            <button class="btn ghost" id="mods-open"><i data-icon="folder"></i>Open folder</button>
+            <button class="btn primary" id="mods-add"><i data-icon="plus"></i>Add mods</button>
+          </div>
+        </div>
+        <div class="grid stat-row">
+          <div class="card stat"><p>Installed</p><h4 id="mods-count">0</h4><span>rpf files</span></div>
+          <div class="card stat"><p>Enabled</p><h4 id="mods-on">0</h4><span>loading in game</span></div>
+          <div class="card stat"><p>Size</p><h4 id="mods-size">0 MB</h4><span>on disk</span></div>
+        </div>
+        <div class="card"><div class="row-between list-head"><h3>FiveM.app/mods</h3><label class="search"><i data-icon="search"></i><input type="text" id="mods-search" placeholder="Search mods" /></label></div><ul class="list" id="mods-list"></ul></div>
+      </section>
+
+      <!-- PRESETS -->
+      <section class="page" data-page="presets">
+        <div class="page-head">
+          <div><p class="eyebrow">Presets</p><h2 class="headline">Swap setups <span class="outline">instantly.</span></h2></div>
+          <div class="head-actions"><button class="btn primary" id="preset-save"><i data-icon="bookmark"></i>Save current setup</button></div>
+        </div>
+        <div class="grid preset-grid" id="preset-grid"></div>
+      </section>
+
+      <!-- SOUND LAB -->
+      <section class="page" data-page="sound">
+        <div class="gun-empty" id="snd-empty">
+          <div class="gun-drop" id="snd-drop">
+            <div class="eq"><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+            <h2 class="headline">Sound <span class="outline">Lab.</span></h2>
+            <p>Drop <code>WEAPONS_PLAYER.rpf</code> and <code>RESIDENT.rpf</code>. Listen to every gun, footstep and kill sound, then swap in your own.</p>
+            <button class="btn primary" id="snd-browse"><i data-icon="upload"></i>Open sound archives</button>
+            <p class="fine">Encrypted (NG) packs work too: the first time, Kt Mod Manager unlocks them using your own GTA V install. Exports are saved unencrypted (OPEN).</p>
+          </div>
+        </div>
+        <div class="snd-lab hidden" id="snd-lab">
+          <div class="card snd-left">
+            <div class="snd-archives" id="snd-archives"></div>
+            <div class="cat-tabs" id="snd-cats">
+              <button class="on" data-cat="all">All</button><button data-cat="guns">Guns</button><button data-cat="footsteps">Steps</button><button data-cat="kill">Kill/HUD</button><button data-cat="other">Other</button>
+            </div>
+            <label class="search"><i data-icon="search"></i><input type="text" id="bank-search" placeholder="Search banks" /></label>
+            <ul class="bank-list" id="bank-list"></ul>
+          </div>
+          <div class="card snd-mid">
+            <div class="row-between"><div><p class="label" style="margin:0 0 4px">Bank</p><h3 id="bank-title" style="margin:0">Pick a bank</h3><small class="mono" id="bank-meta"></small></div>
+              <div class="listen" title="Listening volume (doesn't change your export)"><button class="icon-btn" id="listen-ic"></button><input type="range" id="listen-vol" min="0" max="100" value="35" /><b class="mono" id="listen-pct">35%</b></div></div>
+            <ul class="stream-list" id="stream-list"></ul>
+          </div>
+          <div class="card snd-right">
+            <p class="label" style="margin-top:0">Sound</p>
+            <h3 id="snd-title" style="margin-bottom:4px">Nothing selected</h3>
+            <small class="mono" id="snd-meta"></small>
+            <div class="wave-box"><canvas id="wave"></canvas><i class="playhead" id="playhead"></i></div>
+            <div class="row-between gap">
+              <button class="btn ghost sm" id="play-orig"><i data-icon="play"></i>Original</button>
+              <button class="btn primary sm" id="play-new"><i data-icon="play"></i>Preview edit</button>
+            </div>
+            <div class="mini-drop" id="snd-replace"><i data-icon="upload"></i><div><b id="snd-src">Replace with your sound</b><small>Drop a .wav / .mp3 / .ogg, or click</small></div></div>
+            <div class="slider-field"><span>Volume <b data-so="vol">100%</b></span><input type="range" data-s="vol" min="0" max="300" value="100" /></div>
+            <div class="slider-field"><span>Pitch <b data-so="pitch">100%</b></span><input type="range" data-s="pitch" min="50" max="200" value="100" /></div>
+            <div class="slider-field"><span>Trim start <b data-so="trimStart">0 ms</b></span><input type="range" data-s="trimStart" min="0" max="2000" value="0" /></div>
+            <div class="slider-field"><span>Max length <b data-so="maxLen">full</b></span><input type="range" data-s="maxLen" min="50" max="10000" value="10000" /></div>
+            <div class="slider-field"><span>Fade out <b data-so="fade">0 ms</b></span><input type="range" data-s="fade" min="0" max="1000" value="0" /></div>
+            <div class="row-between gap">
+              <button class="btn ghost sm" id="snd-revert"><i data-icon="undo"></i>Revert</button>
+              <button class="btn primary sm" id="snd-apply"><i data-icon="check"></i>Apply to sound</button>
+            </div>
+            <div class="snd-export">
+              <p class="label">Export</p>
+              <div id="snd-export-list"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- CACHE -->
+      <section class="page" data-page="cache">
+        <div class="page-head">
+          <div><p class="eyebrow">Cache</p><h2 class="headline">Clean it <span class="outline">up.</span></h2></div>
+          <div class="head-actions"><button class="btn ghost" id="cache-refresh"><i data-icon="rotate"></i>Rescan</button><button class="btn primary" id="cache-clean"><i data-icon="broom"></i>Clean selected</button></div>
+        </div>
+        <div class="card cache-hero"><div><p class="label" style="margin-top:0">Selected</p><h4 class="big-num" id="cache-total">0 MB</h4><small>Close FiveM before cleaning. Everything here rebuilds automatically.</small></div><div class="cache-ring"><svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="52" class="track"/><circle cx="60" cy="60" r="52" class="fill" id="cache-arc"/></svg><b id="cache-pct">0%</b></div></div>
+        <div class="grid cache-grid" id="cache-grid"></div>
+      </section>
+
+      <!-- BACKUPS -->
+      <section class="page" data-page="backups">
+        <div class="page-head">
+          <div>
+            <p class="eyebrow">Safety</p>
+            <h2 class="headline">Every change, <span class="outline">reversible.</span></h2>
+          </div>
+          <div class="head-actions"><button class="btn danger" id="restore-all"><i data-icon="undo"></i>Restore everything</button></div>
+        </div>
+        <div class="card"><ul class="list backups" id="backup-list"></ul></div>
+      </section>
+
+      <!-- SETTINGS -->
+      <section class="page" data-page="settings">
+        <div class="page-head">
+          <div><p class="eyebrow">Settings</p><h2 class="headline">Make it <span class="outline">yours.</span></h2></div>
+        </div>
+        <div class="grid settings-grid">
+          <div class="card setting"><div><b>Notification sounds</b><small>Soft clicks when things happen</small></div><button class="switch" data-setting="sound"><i></i></button></div>
+          <div class="card setting"><div><b>Reduce motion</b><small>Tone down animations</small></div><button class="switch" data-setting="reduceMotion"><i></i></button></div>
+          <div class="card setting"><div><b>Background field</b><small>Interactive dot grid</small></div><button class="switch" data-setting="bg"><i></i></button></div>
+          <div class="card setting"><div><b>Encrypted RPFs</b><small id="keys-state">Checking…</small></div><button class="btn primary sm" id="keys-btn">Unlock</button></div>
+          <div class="card setting"><div><b>Test notifications</b><small>See every style</small></div><button class="btn ghost sm" id="test-notify"><i data-icon="bell"></i>Fire</button></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="toasts"></div>
+  <aside id="drawer">
+    <div class="drawer-head"><h3>Notifications</h3><button class="btn ghost sm" id="drawer-clear">Clear</button></div>
+    <ul id="drawer-list"></ul>
+  </aside>
+  <div id="modal-root"></div>
+  <div id="drag-veil"><div><i data-icon="upload"></i><b>Drop it</b></div></div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,21 @@
+{
+  "name": "kt-mod-manager",
+  "productName": "Kt Mod Manager",
+  "version": "1.1.0",
+  "description": "Sleek FiveM citizen mod manager with a gun skin lab and sound pack maker.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test \"test/*.test.js\""
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@fontsource-variable/inter": "5.1.0",
+    "@fontsource/jetbrains-mono": "5.1.0",
+    "adm-zip": "0.5.16",
+    "three": "0.160.0"
+  },
+  "devDependencies": {
+    "electron": "33.2.1"
+  }
+}
