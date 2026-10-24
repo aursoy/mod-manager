@@ -1,8 +1,8 @@
 {
   "name": "kt-mod-manager",
   "productName": "Kt Mod Manager",
-  "version": "1.1.0",
-  "description": "Sleek FiveM citizen mod manager with a gun skin lab and sound pack maker.",
+  "version": "1.2.0",
+  "description": "Sleek FiveM citizen mod manager with a gun skin lab, sound pack maker, timecycle editor and graphics-pack AI.",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
