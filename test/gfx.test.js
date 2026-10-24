@@ -91,13 +91,14 @@ test('timecycle: gradeColours tints and desaturates', async () => {
 
 test('ai: prompt reader handles the pack options in the request', async () => {
   const ai = await aiP;
-  let p = ai.parsePrompt('no water, no black mountains, no props, have trees, no bushes');
-  assert.deepStrictEqual(p.world, { water: 'remove', mountains: 'remove', props: 'remove', trees: 'keep', bushes: 'remove' });
+  let p = ai.parsePrompt('no water, no black mountains, add snow');
+  assert.deepStrictEqual(p.world, { water: 'remove', mountains: 'remove', snow: 'keep' });
   assert.strictEqual(p.sky, undefined, 'black mountains must not read as a black sky');
-  p = ai.parsePrompt('Remove trees and bushes, keep water');
-  assert.deepStrictEqual(p.world, { trees: 'remove', bushes: 'remove', water: 'keep' });
-  p = ai.parsePrompt('no props, have props');
-  assert.strictEqual(p.world.props, 'keep');
+  p = ai.parsePrompt('Remove black mountains and water, keep snow');
+  assert.deepStrictEqual(p.world, { mountains: 'remove', water: 'remove', snow: 'keep' });
+  p = ai.parsePrompt('no water, have water');
+  assert.strictEqual(p.world.water, 'keep');
+  assert.strictEqual(ai.parsePrompt('a winter pack').world.snow, 'keep', 'winter brings snow');
   p = ai.parsePrompt('I want an FPS pack for more FPS and boost');
   assert.strictEqual(p.fps, 2);
   assert.strictEqual(ai.parsePrompt('maximum fps').fps, 3);
@@ -178,8 +179,8 @@ test('ai: constant looks stay bright at night, FPS lowers only matching values',
 
 test('ai: world switches are returned for the tweak layer', async () => {
   const ai = await aiP;
-  const res = ai.buildPack(ai.mergeSpec(ai.emptySpec(), ai.parsePrompt('no water, have trees')), {});
-  assert.deepStrictEqual(res.tweaks, { water: true, trees: false });
+  const res = ai.buildPack(ai.mergeSpec(ai.emptySpec(), ai.parsePrompt('no water, no black mountains, add snow')), {});
+  assert.deepStrictEqual(res.tweaks, { water: true, mountains: true, snow: true }, 'water/mountains: removed, snow: on');
 });
 
 // ---------- main-process side ----------
@@ -238,16 +239,6 @@ test('createPack makes a switchable pack and rejects unsafe paths', () => {
   m.setTweak(id, false);
   assert.strictEqual(fs.readFileSync(path.join(cit, rel), 'utf8'), xml);
 });
-
-test('trees, bushes and props are world switches that need their files first', () => {
-  const { m } = makeCitizen();
-  const ids = m.listTweaks().map((t) => t.id);
-  for (const id of ['water', 'mountains', 'trees', 'bushes', 'props']) assert.ok(ids.includes(id), id);
-  assert.throws(() => m.setTweak('trees', true), /Load the files/);
-  m.setTweak('water', true);
-  assert.ok(m.listTweaks().find((t) => t.id === 'water').enabled);
-});
-
 
 test('ai: "add stars, bigger moon, no fog" become adjustments; negated words are not moods', async () => {
   const ai = await aiP;
@@ -358,11 +349,11 @@ test('a loose skydome.ytd maps to the textures folder, not cdimages', () => {
 test('installing an AI pack: files go live, water switches, missing world files are reported', () => {
   const { m, cit, xml, rel } = makeCitizen();
   const edited = xml.replace('<lod_mult>1.0', '<lod_mult>0.7');
-  const out = createPackWithTweaks(m, 'AI Test', { [rel]: edited }, { water: true, trees: true }, { extra: { 'platform/textures/skydome.ytd': Buffer.from('sky') } });
+  const out = createPackWithTweaks(m, 'AI Test', { [rel]: edited }, { water: true, nosuch: true }, { extra: { 'platform/textures/skydome.ytd': Buffer.from('sky') } });
   assert.ok(out.id);
   assert.deepStrictEqual(out.applied, ['water']);
-  assert.strictEqual(out.skipped[0].id, 'trees');
-  assert.match(out.skipped[0].reason, /Load the files/);
+  assert.strictEqual(out.skipped[0].id, 'nosuch');
+  assert.match(out.skipped[0].reason, /Unknown tweak/);
   assert.strictEqual(fs.readFileSync(path.join(cit, rel), 'utf8'), edited);
   assert.strictEqual(fs.readFileSync(path.join(cit, 'platform/textures/skydome.ytd'), 'utf8'), 'sky');
   assert.ok(fs.readFileSync(path.join(cit, 'common/data/levels/gta5/water.xml'), 'utf8').includes('IsInvisible'));
@@ -660,4 +651,102 @@ test('sky is found in a pack RPF whatever it is called, and RPFs without a sky a
   assert.strictEqual(got.rel, '@mods/x_pvp_v4_final.rpf');
   assert.deepStrictEqual(findInFile(path.join(mods, 'x_pvp_v4_final.rpf'), (n) => n === 'skydome.ytd').map((x) => x.path), ['x64a.rpf/textures/skydome.ytd']);
   assert.strictEqual(cloudName('cloudhat_stormy.ytd'), 'Stormy');
+});
+
+// ---------- black mountains / snow / visual settings (data files edited in place) ----------
+const { WorldFiles, VS, WEATHER } = require('../src/core/worldfiles');
+
+const VS_TEXT = '# Misc Values\nmisc.Multiplier.heightStart\t100\nmisc.Multiplier.farClipMultiplier\t1\n\n# black mountains fix\nlod.fadedist.slod3\t\t25.0\r\n\n# vehicles\ncar.lod.distance.high\t90.00\n';
+const WEATHER_XML = '<CWeatherTypes><WeatherTypes><Item><Name>EXTRASUNNY</Name><Snow value="0.000000"/><SnowMist value="0.000000"/></Item><Item><Name>XMAS</Name><Snow value="1.000000"/><SnowMist value="1.000000"/></Item></WeatherTypes></CWeatherTypes>';
+
+test('black mountains: lowers the draw distance on top of a pack\'s visualsettings.dat, and off puts the pack\'s file back exactly', () => {
+  const { m, cit } = makeCitizen();
+  const packDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kt-vs-'));
+  fs.mkdirSync(path.join(packDir, 'citizen', 'common', 'data'), { recursive: true });
+  fs.writeFileSync(path.join(packDir, 'citizen', 'common', 'data', 'visualsettings.dat'), VS_TEXT);
+  const pack = m.addCustom('Pack', [packDir], 'pack');
+  m.setTweak(pack, true);
+  const wf = new WorldFiles(m, path.join(os.tmpdir(), 'kt-wf-' + Date.now()));
+  let st = wf.mountains();
+  assert.strictEqual(st.available, true);
+  assert.strictEqual(st.removed, false);
+  assert.deepStrictEqual(st.packKeys.map((k) => k.key), ['lod.fadedist.slod3'], 'the pack\'s own "black mountains" lines are found');
+  st = wf.setMountains({ removed: true });
+  assert.strictEqual(st.removed, true);
+  assert.strictEqual(st.value, 0.5);
+  const now = fs.readFileSync(path.join(cit, VS), 'utf8');
+  assert.strictEqual(now, VS_TEXT.replace('farClipMultiplier\t1', 'farClipMultiplier\t0.5'), 'only that one value changed');
+  wf.setMountains({ removed: true, keys: { 'lod.fadedist.slod3': 0 } });
+  assert.ok(fs.readFileSync(path.join(cit, VS), 'utf8').includes('slod3\t\t0\r\n'));
+  wf.setMountains({ removed: false });
+  assert.strictEqual(fs.readFileSync(path.join(cit, VS), 'utf8'), VS_TEXT, 'the pack\'s file is back');
+  assert.strictEqual(m.state.owners[VS], pack);
+});
+
+test('snow: switches on snow for every weather from GTA V\'s own weather.xml, off removes the file again', () => {
+  const { m, cit } = makeCitizen();
+  const wf = new WorldFiles(m, path.join(os.tmpdir(), 'kt-wf2-' + Date.now()), (arc, inner) => (arc === 'update/update.rpf' && inner.endsWith('weather.xml') ? Buffer.from(WEATHER_XML) : null));
+  assert.deepStrictEqual(wf.snow(), { available: true, amount: 1, on: false, weathers: 2 });
+  const st = wf.setSnow(0.8);
+  assert.strictEqual(st.on, true);
+  const x = fs.readFileSync(path.join(cit, WEATHER), 'utf8');
+  assert.strictEqual((x.match(/<Snow value="0.800000"\/>/g) || []).length, 2);
+  assert.strictEqual((x.match(/<SnowMist value="0.480000"\/>/g) || []).length, 2);
+  wf.setSnow(0);
+  assert.ok(!fs.existsSync(path.join(cit, WEATHER)), 'the game\'s own file is used again');
+});
+
+test('visual settings editor: any line can be changed and reset', () => {
+  const { m, cit } = makeCitizen();
+  fs.mkdirSync(path.join(cit, 'common', 'data'), { recursive: true });
+  fs.writeFileSync(path.join(cit, VS), VS_TEXT);
+  const wf = new WorldFiles(m, path.join(os.tmpdir(), 'kt-wf3-' + Date.now()));
+  const vs = wf.visualSettings();
+  assert.strictEqual(vs.entries.length, 4);
+  assert.strictEqual(vs.entries.find((e) => e.key === 'car.lod.distance.high').section, 'vehicles');
+  wf.saveVisualSettings({ 'car.lod.distance.high': 200 });
+  assert.ok(fs.readFileSync(path.join(cit, VS), 'utf8').includes('car.lod.distance.high\t200\n'));
+  assert.strictEqual(wf.visualSettings().edited, true);
+  wf.resetVisualSettings();
+  assert.strictEqual(fs.readFileSync(path.join(cit, VS), 'utf8'), VS_TEXT);
+});
+
+// ---------- blood FX and clothes ----------
+const tex = require('../src/core/texsource');
+
+test('blood FX: found in GTA V, edited, and installed both as mods/kt_bloodfx.rpf and in citizen/platform/textures', async () => {
+  const { m, cit } = makeCitizen();
+  const gta = fs.mkdtempSync(path.join(os.tmpdir(), 'kt-gta-blood-'));
+  fs.writeFileSync(path.join(gta, 'x64a.rpf'), rpf.writeRpf({ type: 'dir', name: '', children: [{ type: 'dir', name: 'textures', children: [
+    resOf('fxdecal.ytd', buildYtd(['blood_splat_1', 'bullet_hole'], 64, 64)), resOf('peddamagedecals.ytd', buildYtd(['blood_drip'], 64, 64)), resOf('skydome.ytd', buildYtd(['starfield'], 64, 64)),
+  ] }] }));
+  const ctx = { pack: null, mgr: m, gtaDirs: () => [gta], unlock: null };
+  const sources = await tex.listSources('blood', ctx);
+  assert.deepStrictEqual(sources.map((s) => [s.id, s.count]), [['game:x64a.rpf', 2]]);
+  const src = await tex.openSource('blood', 'game:x64a.rpf', ctx);
+  assert.deepStrictEqual(src.items.map((x) => x.name), ['Blood splats & decals', 'Blood on players']);
+  src.replace(0, 0, new Uint8Array(src.items[0].ytd.textures[0].dataSize).fill(0x66));
+  const out = src.outputs();
+  assert.deepStrictEqual(Object.keys(out).sort(), ['@mods/kt_bloodfx.rpf', 'platform/textures/fxdecal.ytd']);
+  const res = createPackWithTweaks(m, 'Blood FX', {}, {}, { extra: out }, (rel) => fs.readFileSync(m.absFor(rel)));
+  assert.strictEqual(res.verified.length, 2);
+  assert.ok(new YtdFile(fs.readFileSync(path.join(cit, 'platform/textures/fxdecal.ytd'))).describe(true)[0].data.every((b) => b === 0x66));
+});
+
+test('clothes: opens a folder of clothing textures with readable names, saves only what changed', async () => {
+  const { m } = makeCitizen();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kt-clothes-'));
+  fs.mkdirSync(path.join(dir, 'stream'));
+  fs.writeFileSync(path.join(dir, 'stream', 'mp_m_freemode_01^jbib_diff_015_c_uni.ytd'), buildYtd(['jbib_diff_015_c_uni'], 64, 64));
+  fs.writeFileSync(path.join(dir, 'stream', 'mp_f_freemode_01^p_head_diff_002_a.ytd'), buildYtd(['p_head_diff_002_a'], 64, 64));
+  fs.writeFileSync(path.join(dir, 'stream', 'readme.txt'), 'x');
+  const src = await tex.openFiles('clothes', [dir], { mgr: m, unlock: null });
+  assert.deepStrictEqual(src.items.map((x) => x.name).sort(), ['Hat #2 · texture A · female', 'Top #15 · texture C · male']);
+  assert.deepStrictEqual(src.outputs(), {});
+  const top = src.items.find((x) => x.name.startsWith('Top'));
+  src.replace(top.key, 0, new Uint8Array(top.ytd.textures[0].dataSize).fill(0x44));
+  assert.deepStrictEqual(src.files().map((f) => f.name), ['mp_m_freemode_01^jbib_diff_015_c_uni.ytd']);
+  assert.deepStrictEqual(Object.keys(src.outputs()), ['@mods/kt_clothes.rpf']);
+  assert.strictEqual(tex.clothingName('lowr_000_a_uni.ytd'), 'Pants #0 · texture A');
+  assert.strictEqual(tex.clothingName('random.ytd'), 'random');
 });

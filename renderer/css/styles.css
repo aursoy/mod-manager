@@ -561,7 +561,7 @@ body.heavy .grain, body.heavy .cursor-glow { display: none; }
 .tc-select option { background: #121214; color: #fff; }
 
 /* ---------- graphics tabs, timecycle editor, pack AI ---------- */
-.gfx-tabs { margin-top: 0; min-width: 590px; }
+.gfx-tabs { margin-top: 0; min-width: 700px; }
 .gfx-tabs button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 0 12px; }
 .gfx-tabs button svg.ic { width: 15px; height: 15px; }
 .gfx-lead { margin: -14px 0 22px; font-size: 13.5px; color: var(--ink-3); max-width: 760px; line-height: 1.55; }
@@ -762,3 +762,113 @@ body.custom-bg #bg { display: none; }
 .cl-history li.now { color: #fff; background: var(--glass-2); }
 .cl-history li.future { color: var(--ink-4); text-decoration: line-through; }
 @media (max-width: 1250px) { .cl-work { grid-template-columns: 52px minmax(0, 1fr) 260px; } }
+
+/* world: black mountains lines, visual settings editor */
+.mtn-keys { display: grid; gap: 6px; }
+.mtn-keys .label { margin: 0 0 2px; }
+.mtn-key { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: 11.5px; }
+.mtn-key input, .vs-row input { width: 110px; height: 30px; border-radius: 7px; border: 1px solid var(--line-2); background: rgba(0,0,0,.5); color: #fff; font-family: var(--mono); font-size: 12px; padding: 0 8px; outline: none; user-select: text; }
+.mtn-key input:focus, .vs-row input:focus { border-color: #fff; }
+.vs-card .row-between { align-items: flex-start; gap: 16px; margin-bottom: 12px; }
+.vs-card h3 { margin-bottom: 4px; }
+.vs-card .fine { margin: 0; display: block; }
+.vs-list { list-style: none; max-height: 460px; overflow-y: auto; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 24px; align-content: start; }
+.vs-sec { grid-column: 1 / -1; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3); padding: 14px 4px 6px; border-bottom: 1px solid var(--line); margin-bottom: 4px; }
+.vs-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 4px; border-radius: 7px; font-size: 11.5px; }
+.vs-row .mono { color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vs-row.dirty { background: rgba(255,255,255,.06); }
+.vs-row.dirty input { border-color: #fff; }
+
+.cl-opened { height: 36px; display: flex; align-items: center; padding: 0 12px; border-radius: 8px; border: 1px solid var(--line-2); background: rgba(0,0,0,.4); font-size: 13px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* =====================================================================
+   House style: a tool, not a landing page. Flat solid panels, tight
+   corners, real titles, no glows. Everything above still applies; this
+   only tones it down.
+   ===================================================================== */
+:root {
+  --radius: 8px;
+  --glass: #0d0d10;
+  --glass-2: #16161a;
+  --panel: #0d0d10;
+  --line: #1f1f24;
+  --line-2: #2c2c33;
+}
+body { background: #060607; }
+.grain, .cursor-glow { display: none; }
+
+/* page titles */
+.page { padding: 26px 32px 40px; filter: none !important; transform: none !important; transition: opacity .25s ease; }
+.page.leaving { transform: none; }
+.page-head { margin-bottom: 20px; align-items: center; }
+.headline { font-size: 28px; font-weight: 750; letter-spacing: -.02em; }
+.eyebrow { font-family: var(--mono); font-size: 11px; font-weight: 400; letter-spacing: 0; text-transform: none; color: var(--ink-4); margin-bottom: 6px; }
+.gfx-lead { margin: -8px 0 18px; font-size: 13px; }
+
+/* panels */
+.card { backdrop-filter: none; background: var(--panel); border-radius: var(--radius); padding: 18px; }
+.card::before, .card::after { display: none; }
+.page.active .card, .page.active .tile { animation: fadein .3s ease both; animation-delay: 0ms; }
+@keyframes fadein { from { opacity: 0; } }
+.card h3 { font-size: 14px; }
+
+/* controls */
+.btn { border-radius: 6px; height: 38px; font-weight: 600; }
+.btn.sm { border-radius: 5px; height: 32px; }
+.btn.primary::after { display: none; }
+.btn.primary:hover { box-shadow: none; background: #e6e6e6; }
+.btn.ghost { background: transparent; }
+.btn.ghost:hover { background: var(--glass-2); border-color: var(--line-2); }
+.icon-btn { border-radius: 6px; }
+.seg, .tabs { border-radius: 7px; background: #0a0a0c; }
+.seg button, .tab { border-radius: 5px; }
+.seg-thumb, .tab-pill { border-radius: 5px; box-shadow: none; }
+.chip { border-radius: 6px; height: 30px; }
+.tag { border-radius: 4px; }
+.switch { border-radius: 6px; }
+.switch i { border-radius: 4px; }
+.field input[type=text], .field select, .tc-select, .search, .nin, .cin, .aip-input textarea { border-radius: 6px; }
+.colour-field input[type=color] { border-radius: 6px; }
+.mini-drop { border-radius: 6px; }
+.tweak-icon { border-radius: 8px; }
+.tweak-icon .wave { display: none; }
+.sw { border-radius: 6px; }
+.sw:hover { transform: none; }
+
+/* sidebar */
+.sidebar { background: #08080a; padding: 14px 10px; }
+#nav a { border-radius: 6px; padding: 10px 12px; font-size: 13.5px; }
+#nav a:hover svg.ic { transform: none; }
+.nav-pill { border-radius: 6px; box-shadow: none; }
+.titlebar { background: #08080a; backdrop-filter: none; }
+
+/* =====================================================================
+   Chrome effect (Settings → Chrome effect): polished-metal titles,
+   buttons and panel edges, with a slow light sweep.
+   ===================================================================== */
+body.chrome {
+  --chrome: linear-gradient(180deg, #ffffff 0%, #d9dce1 16%, #8a9099 34%, #f2f4f6 50%, #a3a9b1 64%, #e8ebee 82%, #707680 100%);
+  --chrome-h: linear-gradient(90deg, #6c727b 0%, #e9ecef 18%, #9ea4ad 32%, #ffffff 46%, #a6acb4 60%, #e2e5e8 78%, #747a83 100%);
+}
+body.chrome .headline, body.chrome .brand > span {
+  background: var(--chrome-h); background-size: 220% 100%;
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  animation: chrome-sweep 7s linear infinite;
+}
+body.chrome .headline { filter: drop-shadow(0 1px 0 rgba(0,0,0,.8)) drop-shadow(0 0 1px rgba(255,255,255,.15)); }
+@keyframes chrome-sweep { from { background-position: 0% 0; } to { background-position: 220% 0; } }
+body.chrome .btn.primary, body.chrome .seg-thumb, body.chrome .tab-pill, body.chrome .nav-pill,
+body.chrome .chip.on, body.chrome .tag.solid, body.chrome .switch.on, body.chrome .cl-tools button.on, body.chrome .tce-keys button.on {
+  background: var(--chrome); border-color: #c9ccd1; color: #111;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.9), inset 0 -1px 0 rgba(0,0,0,.35), 0 1px 3px rgba(0,0,0,.6);
+}
+body.chrome .btn.primary:hover { background: var(--chrome-h); background-size: 220% 100%; animation: chrome-sweep 2.5s linear infinite; }
+body.chrome .card {
+  border: 1px solid transparent;
+  background: linear-gradient(var(--panel), var(--panel)) padding-box,
+              linear-gradient(155deg, #a7adb5 0%, #2a2c31 22%, #61666e 45%, #1d1f23 65%, #c3c7cc 100%) border-box;
+}
+body.chrome .brand-mark { border-color: #d9dce1; }
+body.chrome .brand-mark::after { background: var(--chrome); }
+body.chrome #nav a.active svg.ic { color: #111; }
+body.chrome .switch.on i { background: #1a1a1d; }

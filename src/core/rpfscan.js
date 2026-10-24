@@ -101,4 +101,22 @@ function extractFromFile(file, test) {
   } finally { fs.closeSync(fd); }
 }
 
-module.exports = { findInFile, extractFromFile };
+/**
+ * Read one plain file (e.g. common/data/visualsettings.dat) out of a game RPF without
+ * loading the archive: only its table of contents and that entry are read.
+ * `want` is the path inside the archive, compared case-insensitively.
+ */
+function readFileFrom(file, want) {
+  want = want.toLowerCase().replace(/\\/g, '/');
+  const fd = fs.openSync(file, 'r');
+  try {
+    const root = readToc(fd, 0, fs.fstatSync(fd).size, require('path').basename(file));
+    let hit = null;
+    rpf.walk(root, (e, p) => { if (!hit && e.type === 'bin' && p.toLowerCase() === want) hit = e; });
+    if (!hit || !hit.at) return null;
+    hit.stored = readAt(fd, hit.at.start, hit.at.len);
+    return Buffer.from(rpf.getBinaryData(hit));
+  } finally { fs.closeSync(fd); }
+}
+
+module.exports = { findInFile, extractFromFile, readFileFrom };

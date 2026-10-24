@@ -6,8 +6,8 @@
 
 import { parse, serialize, keyHours, daylight, twilight, mix, lum, clamp01, hexToRgb, rgbToHex, gradeColours, setColour } from './timecycle.js';
 
-const WORLD_KEYS = ['water', 'mountains', 'trees', 'bushes', 'props'];
-export const WORLD_LABEL = { water: 'Water', mountains: 'Black mountains', trees: 'Trees', bushes: 'Bushes', props: 'Props' };
+const WORLD_KEYS = ['water', 'mountains', 'snow'];
+export const WORLD_LABEL = { water: 'Water', mountains: 'Black mountains', snow: 'Snow' };
 const GRADE_GROUPS = ['sky', 'sun', 'cloud', 'light', 'ambient', 'fog'];
 
 export const emptySpec = () => ({ name: '', mood: null, sky: null, skyImage: null, grade: null, world: {}, adjust: {}, fps: 0, constant: false, timeLock: null });
@@ -49,7 +49,7 @@ export const MOODS = {
   stormy: { label: 'Stormy', words: /\b(storm|stormy|rain|rainy|thunder)\b/, sky: ['#3b434d', '#6b747e', '#9aa3ad', '#4a525c', '#636c76'], grade: { saturation: 0.7, brightness: -0.15 } },
   neon: { label: 'Neon', words: /\b(neon|cyberpunk|synthwave|retrowave|outrun)\b/, constant: true, sky: ['#1a0b3d', '#ff2e97', '#00e5ff', '#8a3dff', '#3a1a6e'], grade: { tint: '#b050ff', strength: 0.3, saturation: 1.4 } },
   vaporwave: { label: 'Vaporwave', words: /\b(vaporwave|pastel|candy)\b/, constant: true, sky: ['#7b6bff', '#ff9ed8', '#fff1a8', '#ffc4ec', '#d9a8ff'], grade: { saturation: 1.15 } },
-  winter: { label: 'Winter', words: /\b(winter|snow|snowy|icy|frozen|arctic)\b/, sky: ['#6fa0d6', '#e0f0ff', '#ffffff', '#f2f8ff', '#e6f1fa'], grade: { tint: '#a0c8ff', strength: 0.2 } },
+  winter: { label: 'Winter', words: /\b(winter|icy|frozen|arctic)\b/, sky: ['#6fa0d6', '#e0f0ff', '#ffffff', '#f2f8ff', '#e6f1fa'], grade: { tint: '#a0c8ff', strength: 0.2 } },
   desert: { label: 'Desert', words: /\b(desert|hot|scorching|arid)\b/, sky: ['#4f8fd8', '#ffd9a0', '#fff0c0', '#fff4e0', '#f2d9b0'], grade: { tint: '#ffb060', strength: 0.22 } },
   apocalypse: { label: 'Apocalypse', words: /\b(apocalypse|apocalyptic|hell|doom|blood sky)\b/, constant: true, sky: ['#3a0a0a', '#ff3a1a', '#ffb060', '#6a1a10', '#5a2418'], grade: { tint: '#ff4020', strength: 0.3, saturation: 0.9 } },
   cinematic: { label: 'Cinematic', words: /\b(cinematic|film|movie|teal and orange|teal orange)\b/, sky: ['#1f5f7a', '#ffb27a', '#ffe0b0', '#ffd0a0', '#8fb5c0'], grade: { tint: '#ff9a50', strength: 0.15, saturation: 1.15 } },
@@ -66,8 +66,8 @@ export const EXAMPLES = [
   'Always night, purple sky, no fog, max FPS',
   'Black sky, no sun, no clouds, FPS boost',
   'Pink neon sky, more stars, bigger moon',
-  'Neon cyberpunk night with no trees or bushes',
-  'Max FPS pack: no props, no trees, no bushes, no water',
+  'Snowy winter pack, no black mountains',
+  'Max FPS pack: no water, no black mountains',
   'Dark moody overcast, a bit more saturated',
 ];
 
@@ -132,9 +132,7 @@ const skyOf = (arr) => ({ zenith: arr[0], horizon: arr[1], sun: arr[2], cloud: a
 const FEATURES = {
   water: /\b(water|ocean|sea|rivers?|lakes?)\b/,
   mountains: /\b(black\s+mountains?|mountains?)\b/,
-  trees: /\b(trees?|forests?|foliage)\b/,
-  bushes: /\b(bush(?:es)?|shrubs?|grass|foliage|plants?)\b/,
-  props: /\b(props?|clutter|debris)\b/,
+  snow: /\b(snow|snowy|snowfall)\b/,
 };
 const NEG = /\b(no|without|remove|removed|removing|hide|delete|disable|disabled|kill|get rid of|zero|none|turn off|nothing)\b/;
 const POS = /\b(have|with|keep|add|show|restore|enable|enabled|bring back|include|turn on)\b/;
@@ -170,8 +168,6 @@ export function parsePrompt(text) {
     let pol = NEG.test(c) ? 'remove' : POS.test(c) ? 'keep' : null;
     if (!pol && words <= 3 && last) pol = last;
     const hits = Object.entries(FEATURES).filter(([, re]) => re.test(c)).map(([k]) => k);
-    if (/\bfoliage\b/.test(c)) for (const k of ['trees', 'bushes']) if (!hits.includes(k)) hits.push(k);
-    if (/\bnature\b/.test(c)) for (const k of ['trees', 'bushes']) if (!hits.includes(k)) hits.push(k);
     if (pol && hits.length) for (const k of hits) patch.world[k] = pol;
     if (pol) last = pol;
     else if (!hits.length && words > 3) last = null;
@@ -197,6 +193,7 @@ export function parsePrompt(text) {
     patch.mood = id;
     if (m.sky) patch.sky = { ...skyOf(m.sky), strength: 0.85 };
     if (m.constant) patch.constant = true;
+    if (id === 'winter' && !patch.world.snow) patch.world.snow = 'keep';
     if (m.pvp) {
       if (patch.fps == null) patch.fps = 2;
       patch.adjust = { fog: 'none', bloom: 'none', blur: 'none', ...(patch.adjust || {}) };
@@ -426,8 +423,9 @@ export function buildPack(spec, files) {
   }
 
   const tweaks = {};
+  // water / mountains: true = removed. snow: true = snow on.
   for (const k of WORLD_KEYS) {
-    if (spec.world && spec.world[k]) tweaks[k] = spec.world[k] === 'remove';
+    if (spec.world && spec.world[k]) tweaks[k] = k === 'snow' ? spec.world[k] === 'keep' : spec.world[k] === 'remove';
   }
   return { files: out, tweaks, report, changed: Object.keys(out).length };
 }
@@ -441,7 +439,7 @@ export function describeSpec(spec) {
   if (spec.sky) chips.push('Custom sky');
   if (spec.grade) chips.push('Colour grade');
   if (spec.constant) chips.push('Same all day');
-  for (const k of WORLD_KEYS) if (spec.world && spec.world[k]) chips.push((spec.world[k] === 'remove' ? 'No ' : 'Keep ') + WORLD_LABEL[k].toLowerCase());
+  for (const k of WORLD_KEYS) if (spec.world && spec.world[k]) chips.push((spec.world[k] === 'remove' ? 'No ' : k === 'snow' ? 'Add ' : 'Keep ') + WORLD_LABEL[k].toLowerCase());
   for (const [k, op] of Object.entries(spec.adjust || {})) if (ADJUST[k]) chips.push(ADJUST[k].label + ': ' + (op === 'none' ? 'off' : op));
   if (spec.skyImage) chips.push(spec.skyImage.allDay ? 'Picture sky (all the time)' : 'Picture sky (night)');
   if (spec.timeLock) chips.push('Always ' + spec.timeLock);

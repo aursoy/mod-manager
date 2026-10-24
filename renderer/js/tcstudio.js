@@ -9,7 +9,18 @@ import * as AI from './gfxai.js';
 import { drawScene } from './tcpreview.js';
 import { encode as encodeTex } from './dxt.js';
 import { cleanError } from './keys.js';
-import { initCloudLab, enterCloudLab } from './cloudlab.js';
+import { createLab } from './cloudlab.js';
+
+const graphicsOn = () => document.querySelector('.page[data-page="graphics"]').classList.contains('active');
+const NO_PACK = 'Add a graphics pack under My packs or in Create with AI, or link your citizen folder (Dashboard) so GTA V can be found.';
+const cloudLab = createLab({
+  P: 'cl', kind: 'clouds', mount: '#lab-clouds', icon: 'cloud', active: () => pane === 'clouds' && graphicsOn(),
+  texts: { what: 'clouds', from: 'Clouds from', list: 'Cloud hats', emptyTitle: 'Looking for your clouds…', emptyText: 'Checking your pack, your mods folder, citizen and GTA V.', none: NO_PACK },
+});
+const bloodLab = createLab({
+  P: 'bl', kind: 'blood', mount: '#lab-blood', icon: 'droplet', active: () => pane === 'blood' && graphicsOn(),
+  texts: { what: 'blood textures', from: 'Blood from', list: 'Blood textures', emptyTitle: 'Looking for your blood FX…', emptyText: 'Checking your pack, your mods folder, citizen and GTA V for fxdecal.ytd and peddamagedecals.ytd.', none: NO_PACK },
+});
 
 const api = window.api;
 const $ = (s, r = document) => r.querySelector(s);
@@ -649,9 +660,17 @@ async function generate() {
     }
 
     const tw = await api.call('tweaks:list');
+    const world = {};
     for (const [id, on] of Object.entries(res.tweaks)) {
       const t = tw.find((x) => x.id === id);
       const label = AI.WORLD_LABEL[id];
+      // black mountains and snow edit visualsettings.dat / weather.xml (World page), not pack files
+      if (id === 'mountains' || id === 'snow') {
+        world[id] = on;
+        delete res.tweaks[id];
+        lines.push(`✓ ${esc(label)}: ${id === 'snow' ? (on ? 'on' : 'off') : on ? 'removed' : 'visible'}`);
+        continue;
+      }
       if (t && !t.hasFiles) {
         // Nothing to switch: the player's packs do not come with removal files for this.
         delete res.tweaks[id];
@@ -664,11 +683,11 @@ async function generate() {
     if (!Object.keys(files).length && (aip.spec.sky || aip.spec.grade || aip.spec.fps || Object.keys(aip.spec.adjust || {}).length)) {
       lines.push('! I found no timecycle files ' + (aip.pack ? 'in this pack' : 'in your game (link your citizen folder or add a pack)') + ', so colours, stars and FPS could not be changed.');
     }
-    aip.result = { ...res, name: AI.packName(aip.spec), base: files, skyOk };
+    aip.result = { ...res, world, name: AI.packName(aip.spec), base: files, skyOk };
     showResult();
     bubble('ai', `Made <b>${esc(aip.result.name)}</b>:<br>${lines.join('<br>')}`);
     // The manager does the work: install straight away (Undo puts it all back).
-    if (Object.keys(res.files).length || Object.keys(res.tweaks).length || skyOk || aip.pack) await installAi();
+    if (Object.keys(res.files).length || Object.keys(res.tweaks).length || Object.keys(world).length || skyOk || aip.pack) await installAi();
   } catch (e) {
     bubble('ai', 'Something went wrong: ' + esc(e.message));
   } finally {
@@ -683,7 +702,7 @@ function showResult() {
   const r = aip.result;
   $('#aip-spec').innerHTML = AI.describeSpec(aip.spec).filter((c) => r.skyOk || !/^Picture sky/.test(c)).map((c) => `<span class="tag">${esc(c)}</span>`).join('');
   $('#aip-report').innerHTML = r.report.map((x) => `<li class="${x.ok ? 'ok' : 'warn'}">${esc(x.text)}</li>`).join('');
-  const hasWork = Object.keys(r.files).length || Object.keys(r.tweaks).length || r.skyOk || aip.pack;
+  const hasWork = Object.keys(r.files).length || Object.keys(r.tweaks).length || Object.keys(r.world || {}).length || r.skyOk || aip.pack;
   $('#aip-install').disabled = !hasWork;
   $('#aip-edit').disabled = !Object.keys(r.files).length;
   $('#aip-status').textContent = r.name;
@@ -740,8 +759,23 @@ async function installAi() {
   try {
     await undoInstall({ quiet: true });
     const out = await api.call('pack:create', r.name, r.files, r.tweaks, { includePack: !!aip.pack, includeSky: !!r.skyOk });
-    aip.installed = { id: out.id, tweaks: Object.fromEntries(out.applied.map((t) => [t, r.tweaks[t]])) };
+    aip.installed = { id: out.id, tweaks: Object.fromEntries(out.applied.map((t) => [t, r.tweaks[t]])), world: {} };
     const lines = [];
+    // black mountains / snow: remember how they were so Undo can put them back
+    if ('mountains' in (r.world || {})) {
+      try {
+        aip.installed.world.mountains = await api.call('world:mountains');
+        await api.call('world:setMountains', { removed: r.world.mountains });
+        lines.push('✓ Black mountains ' + (r.world.mountains ? 'removed' : 'visible') + ' (visualsettings.dat)');
+      } catch (e) { lines.push('! Black mountains: ' + esc(e.message)); }
+    }
+    if ('snow' in (r.world || {})) {
+      try {
+        aip.installed.world.snow = await api.call('world:snow');
+        await api.call('world:setSnow', r.world.snow ? 1 : 0);
+        lines.push('✓ Snow ' + (r.world.snow ? 'on' : 'off') + ' (weather.xml)');
+      } catch (e) { lines.push('! Snow: ' + esc(e.message)); }
+    }
     if (out.verified.length) lines.push(`✓ Checked on disk: your picture is in ${out.verified.map((x) => `<b>${esc(where(x))}</b>`).join(' and ')}`);
     if (out.failed.length) lines.push(`! I couldn't write ${out.failed.map((x) => esc(where(x))).join(', ')}. If FiveM is open, close it fully and press <b>Install again</b>.`);
     if (out.applied.length) lines.push('✓ ' + out.applied.map((t) => AI.WORLD_LABEL[t] + (r.tweaks[t] ? ' removed' : ' back')).join(', '));
@@ -765,6 +799,9 @@ async function undoInstall({ quiet = false } = {}) {
   try {
     if (inst.id) await api.call('tweaks:removeCustom', inst.id);
     for (const [t, on] of Object.entries(inst.tweaks)) await api.call('tweaks:set', t, !on).catch(() => {});
+    const w = inst.world || {};
+    if (w.mountains) await api.call('world:setMountains', w.mountains.removed ? { removed: true, distance: w.mountains.value } : { removed: false }).catch(() => {});
+    if (w.snow) await api.call('world:setSnow', w.snow.on ? w.snow.amount : 0).catch(() => {});
     if (!quiet) { bubble('ai', 'Undone: the pack is out of your game and everything is back how it was.'); notify.success('Undone', 'Your game is back how it was.'); }
   } catch (e) { if (!quiet) notify.error('Undo failed', e.message); }
   paintInstallState();
@@ -822,7 +859,8 @@ function initAi() {
 const LEAD = {
   packs: 'Your graphics packs live here. Add one, switch it on or off, and tint the colours of your whole game.',
   ai: 'Describe the look you want and the AI builds a pack for you. Add a picture to make it your sky, or add a pack folder to build on.',
-  clouds: 'Change your cloud hats like a paint program: recolour every cloud at once, paint on them, or swap in your own picture. Then press Install.',
+  clouds: 'Change your cloud hats: recolour every cloud at once, paint on them, or swap in your own picture. Then press Install.',
+  blood: 'Change the blood: recolour it (neon, confetti, black…), paint on it or swap in your own picture. Found in your pack, mods folder or GTA V. Then press Install.',
   editor: 'For tinkerers: open any timecycle file and change every colour and value by hand, with a live preview of the day.',
 };
 
@@ -836,7 +874,8 @@ function setPane(name) {
   $('#gfx-lead').textContent = LEAD[name];
   requestAnimationFrame(() => $$('.gfx-pane:not(.hidden) .seg').forEach(syncSeg));
   if (name === 'editor') enterEditor();
-  if (name === 'clouds') enterCloudLab();
+  if (name === 'clouds') cloudLab.enter();
+  if (name === 'blood') bloodLab.enter();
   if (name === 'ai') { refreshAiEngine(); requestAnimationFrame(drawAi); }
   if (name === 'packs') ctx.refreshGraphics && ctx.refreshGraphics();
 }
@@ -847,7 +886,8 @@ export function initStudio(c) {
   $('#gfx-lead').textContent = LEAD[pane];
   initEditor();
   initAi();
-  initCloudLab({ modal: ctx.modal });
+  cloudLab.init({ modal: ctx.modal });
+  bloodLab.init({ modal: ctx.modal });
   refreshAiEngine();
 }
 
@@ -855,7 +895,8 @@ export function initStudio(c) {
 export function refreshStudio() {
   requestAnimationFrame(() => syncSeg($('#gfx-tabs')));
   if (pane === 'editor') enterEditor();
-  if (pane === 'clouds') enterCloudLab();
+  if (pane === 'clouds') cloudLab.enter();
+  if (pane === 'blood') bloodLab.enter();
   if (pane === 'ai') { refreshAiEngine(); drawAi(); }
 }
 

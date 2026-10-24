@@ -12,7 +12,9 @@ const rpf = require('./src/core/rpf');
 const { describePack, editableTimecycles, createPackWithTweaks } = require('./src/core/gfxpack');
 const { findGtaDirs, DEFAULT_REL: SKY_REL } = require('./src/core/skytex');
 const { openSkySource, skySources } = require('./src/core/skysource');
-const { listCloudSources, openCloudSource } = require('./src/core/clouds');
+const { listSources, openSource, openFiles } = require('./src/core/texsource');
+const { WorldFiles } = require('./src/core/worldfiles');
+const { readFileFrom } = require('./src/core/rpfscan');
 const { GtaKeys, findAesKey, findGtaExes } = require('./src/core/ngcrypto');
 
 app.setName('Kt Mod Manager');
@@ -253,19 +255,64 @@ app.whenReady().then(() => {
     if (sky.rel !== SKY_REL) sky.outputs[SKY_REL] = sky.obj.ytdBytes();
     return { bytes: sky.out.length, rel: sky.rel, outputs: Object.keys(sky.outputs) };
   });
-  // ----- cloud editor -----
-  let clouds = null;
-  handle('clouds:list', () => listCloudSources(skyCtx()));
-  handle('clouds:open', async (id) => {
-    clouds = await openCloudSource(id, skyCtx());
-    return { label: clouds.label, items: clouds.items.map((x) => ({ key: x.key, name: x.name, file: x.file, path: x.path, textures: x.ytd.describe(true) })) };
+  // ----- world: black mountains, snow, visual settings -----
+  const world = new WorldFiles(mgr, path.join(app.getPath('userData'), 'data'), (arc, inner) => {
+    const dir = gtaDirs()[0];
+    const file = dir && path.join(dir, ...arc.split('/'));
+    return file && fs.existsSync(file) ? readFileFrom(file, inner) : null;
   });
-  handle('clouds:install', (edits) => {
-    if (!clouds) throw new Error('Open your clouds first.');
-    for (const e of edits) clouds.replace(e.key, e.texIndex, Buffer.from(e.data));
-    const outputs = clouds.outputs();
-    if (!Object.keys(outputs).length) throw new Error('Change a cloud first.');
-    return createPackWithTweaks(mgr, 'Custom clouds', {}, {}, { extra: outputs }, (rel) => fs.readFileSync(mgr.absFor(rel)));
+  // GTA V's archives are encrypted: unlock once (read-only, cached) and try again.
+  const worldCall = async (fn) => {
+    world.needKeys = false;
+    let r = fn();
+    if (world.needKeys && !rpf.getKeys()) { await skyCtx().unlock(); world.needKeys = false; r = fn(); }
+    return r;
+  };
+  handle('world:mountains', () => worldCall(() => world.mountains()));
+  handle('world:setMountains', (opts) => worldCall(() => world.setMountains(opts)));
+  handle('world:snow', () => worldCall(() => world.snow()));
+  handle('world:setSnow', (amount) => worldCall(() => world.setSnow(amount)));
+  handle('world:visual', () => worldCall(() => world.visualSettings()));
+  handle('world:saveVisual', (changes) => worldCall(() => world.saveVisualSettings(changes)));
+  handle('world:resetVisual', () => world.resetVisualSettings());
+
+  // ----- texture labs: clouds, blood FX, clothes -----
+  const labs = {};
+  const PACK_NAMES = { clouds: 'Custom clouds', blood: 'Custom blood FX', clothes: 'Custom clothes' };
+  const labInfo = (kind) => ({ label: labs[kind].label, items: labs[kind].items.map((x) => ({ key: x.key, name: x.name, file: x.file, path: x.path, textures: x.ytd.describe(true) })) });
+  handle('tex:list', (kind) => listSources(kind, skyCtx()));
+  handle('tex:open', async (kind, id) => { labs[kind] = await openSource(kind, id, skyCtx()); return labInfo(kind); });
+  handle('tex:openFiles', async (kind, given) => {
+    let paths = given;
+    if (!paths) {
+      const r = await dialog.showOpenDialog(win, { title: 'Open clothing textures (.ytd), a folder or an .rpf', properties: ['openFile', 'multiSelections'], filters: [{ name: 'Textures / archives', extensions: ['ytd', 'rpf'] }] });
+      if (r.canceled) return null;
+      paths = r.filePaths;
+    }
+    labs[kind] = await openFiles(kind, paths, skyCtx());
+    return labInfo(kind);
+  });
+  const applyEdits = (kind, edits) => {
+    const lab = labs[kind];
+    if (!lab) throw new Error('Open something first.');
+    for (const e of edits) lab.replace(e.key, e.texIndex, Buffer.from(e.data));
+    return lab;
+  };
+  handle('tex:install', (kind, edits) => {
+    const outputs = applyEdits(kind, edits).outputs();
+    if (!Object.keys(outputs).length) throw new Error('Change something first.');
+    return createPackWithTweaks(mgr, PACK_NAMES[kind] || 'Custom textures', {}, {}, { extra: outputs }, (rel) => fs.readFileSync(mgr.absFor(rel)));
+  });
+  // "Save to folder": the edited .ytd files as they are (for a server's stream folder)
+  handle('tex:saveFolder', async (kind, edits) => {
+    const lab = applyEdits(kind, edits);
+    if (!lab.files) throw new Error('These textures go back into their own archive; use Install.');
+    const files = lab.files();
+    if (!files.length) throw new Error('Change something first.');
+    const r = await dialog.showOpenDialog(win, { title: 'Save the edited textures to…', properties: ['openDirectory', 'createDirectory'] });
+    if (r.canceled) return null;
+    for (const f of files) fs.writeFileSync(path.join(r.filePaths[0], f.name), f.bytes);
+    return { dir: r.filePaths[0], count: files.length };
   });
 
   handle('sky:export', async () => {
