@@ -18,10 +18,10 @@ Or double-click `start.bat`.
 - **Graphics**: three tabs.
   - **My packs**: add packs (drop a folder or `.zip`), switch them on and off, delete them. **Colour tint** tints every timecycle in your game, with a live preview of the result. Applying again replaces the last tint; Reset tint removes it.
   - **Create with AI**: describe the pack you want. Add a picture to make it your sky, or a pack folder to build on. See below.
-  - **Advanced editor**: open any timecycle XML from your game (or your computer) with a live day/night preview, and change every colour and value by hand, for one time of day or the whole day. Untouched values are saved exactly as they were. Save to game (backed up), save as a pack, or export. For files FiveM does not read (not named `w_*.xml`), "Use for sunny weather" copies it over the sunny and clear weather.
+  - **Advanced editor**: open any timecycle XML from your game (or your computer). Pick the weather and the area (Countryside or City; every game weather file has both), and see it in a live day/night preview. Settings have plain names ("Sky colour (top)", "Moon size"). Click one to open it: every box is one time of day, and you only change the box you pick (there is also "use this colour all day"). Untouched values are saved exactly as they were. Save to game (backed up), save as a pack, or export. For files FiveM does not read (not named `w_*.xml`), "Use for sunny weather" copies it over the sunny and clear weather.
 - **World**:
   - Water: removed / visible.
-  - Black mountains, Trees, Bushes, Props: load the removal files from your pack once, then switch each between removed and visible.
+  - Black mountains, Trees, Bushes, Props: these need removal files that come with some packs. Until you add them, the card says "Not set up" instead of showing a switch.
   - Custom tweaks: any folder laid out like `citizen/` becomes a toggle.
 - **Mods**: lists `FiveM.app/mods`. Turning a mod off renames it to `.rpf.off`. You can also add mods or move them to the Recycle Bin.
 - **Presets**: save your current packs, tweaks, colour grade and enabled mods, then switch back in one click.
@@ -52,7 +52,7 @@ Type what you want, and optionally add a picture and/or a pack folder:
 
 > Use my picture as the actual sky, add stars, bigger moon, no water, FPS boost.
 
-- **A picture as the sky**: GTA V paints the daytime sky from colours, but the night sky is a picture: the `starfield` texture inside `skydome.ytd` (the same file sky mods replace). Your picture is written into that texture, in its original size and format. It shows at night with the stars; say "all day" to keep it on in the daytime too (experimental: the day sky is darkened so the picture shows through). The sky colours are also taken from your picture. `skydome.ytd` is taken from the pack you added, then your citizen folder, then your GTA V install (`x64a.rpf`, unlocked like other encrypted RPFs); if none is found you are asked to pick it.
+- **A picture as the sky**: GTA V paints the daytime sky from colours, but the night sky is a picture: the `starfield` texture inside `skydome.ytd` (the same file sky mods replace). Your picture is written into that texture, in its original size and format. It shows at night with the stars; say "all day" to keep it on in the daytime too (experimental: the day sky is darkened so the picture shows through). The sky colours are also taken from your picture. `skydome.ytd` is taken from the pack you added, then your citizen folder, then your own GTA V (`x64a.rpf`). GTA V is found through FiveM's `CitizenFX.ini`, and the archive is unlocked automatically the first time (read-only, about 10 seconds). There is no popup: if the file really cannot be found, the chat says so, uses the picture's colours for the sky, and offers a link to choose the file.
 - **A pack folder or .zip** (folder button, or drop it on the chat): the AI builds on it. The new pack keeps every file of the original; the original folder is never changed.
 - **Things you can ask for**: stars, moon, sun, clouds, fog, glow with more / less / no / bigger / smaller; moods (sunny, sunset, sunrise, night, overcast, foggy, stormy, neon/cyberpunk, vaporwave, winter, desert, apocalypse, cinematic, realistic); colours ("purple sky", "red tint"); darker / brighter / more vibrant; "no water", "no black mountains", "no trees", "no bushes", "no props" and the matching "have ..."; FPS boost (light / boost / max).
 - Every answer says exactly what changed, and plainly when something could not be done (for example a timecycle with no moon size value, or trees whose removal files are not loaded yet).
@@ -77,7 +77,7 @@ It works offline with a built-in reader. Add an Anthropic API key in Settings â†
 ## Dev
 
 ```
-npm test                      # 39 tests: RPF, textures, DXT, citizen, AWC, Sound Lab, mods, cache, presets, timecycle editor, Pack AI, sky texture, dropped packs
+npm test                      # 41 tests: RPF, textures, DXT, citizen, AWC, Sound Lab, mods, cache, presets, timecycle editor, Pack AI, sky texture, dropped packs
 node scripts/make-sample.mjs  # builds samples/ (test pistol + test sound pack)
 node scripts/rpf-ls.js x.rpf  # list an archive's contents, including nested archives
 ```

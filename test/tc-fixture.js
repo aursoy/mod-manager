@@ -15,17 +15,22 @@ function colour(name, rgb, k = 1) {
   return ['r', 'g', 'b'].map((ch, i) => `      <${name}_${ch}>${track(rgb[i], k)}</${name}_${ch}>`).join('\n');
 }
 
-function cycle(name) {
-  return `  <cycle name="${name}">
-${colour('sky_zenith_col', [0.25, 0.45, 0.85])}
-${colour('sky_horizon_col', [0.7, 0.8, 0.95])}
-${colour('sky_azimuth_east_col', [0.9, 0.75, 0.6])}
-${colour('sky_azimuth_west_col', [0.95, 0.7, 0.5])}
-${colour('sky_sun_col', [1, 0.95, 0.8])}
-${colour('sky_cloud_base_col', [0.85, 0.88, 0.95])}
-${colour('fog_col', [0.6, 0.7, 0.85])}
-${colour('light_dir_col', [1, 0.95, 0.85])}
-${colour('light_natural_amb_down_col', [0.3, 0.35, 0.45])}
+// Same layout as the game files (as read by CodeWalker): one <cycle> per weather
+// with a GLOBAL (countryside) and an URBAN (city) region, real tag names.
+function region(rname, k) {
+  return `    <region name="${rname}">
+${colour('sky_zenith_col', [0.25, 0.45, 0.85], k)}
+      <sky_zenith_col_inten>1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0</sky_zenith_col_inten>
+${colour('sky_zenith_transition_col', [0.4, 0.6, 0.9], k)}
+${colour('sky_azimuth_east_col', [0.9, 0.75, 0.6], k)}
+${colour('sky_azimuth_west_col', [0.95, 0.7, 0.5], k)}
+${colour('sky_azimuth_transition_col', [0.7, 0.8, 0.95], k)}
+${colour('sky_sun_col', [1, 0.95, 0.8], k)}
+${colour('sky_moon_col', [0.7, 0.75, 0.9], k)}
+${colour('sky_cloud_base_col', [0.85, 0.88, 0.95], k)}
+${colour('fog_col', [0.6, 0.7, 0.85], k)}
+${colour('light_dir_col', [1, 0.95, 0.85], k)}
+${colour('light_natural_amb_down_col', [0.3, 0.35, 0.45], k)}
       <postfx_exposure>1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0</postfx_exposure>
       <lod_mult>1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0</lod_mult>
       <ssao_inten>1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0</ssao_inten>
@@ -33,8 +38,16 @@ ${colour('light_natural_amb_down_col', [0.3, 0.35, 0.45])}
       <light_ray_mult>0.8 0.8 0.8 0.8 0.8 0.8 0.8 0.8 0.8</light_ray_mult>
       <sky_stars_iten>1.0 0.4 0.0 0.0 0.0 0.0 0.0 0.3 1.0</sky_stars_iten>
       <sky_moon_iten>1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0</sky_moon_iten>
+      <sky_moon_disc_size>1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0</sky_moon_disc_size>
       <fog_start>20 20 20 20 20 20 20 20 20</fog_start>
-      <sky_sun_disc_size value="2.5"/>
+      <sky_sun_disc_size>2.5 2.5 2.5 2.5 2.5 2.5 2.5 2.5 2.5</sky_sun_disc_size>
+    </region>`;
+}
+
+function cycle(name) {
+  return `  <cycle name="${name}" regions="2">
+${region('GLOBAL', 1)}
+${region('URBAN', 0.9)}
   </cycle>`;
 }
 

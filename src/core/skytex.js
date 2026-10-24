@@ -63,4 +63,25 @@ function skydomeFromGame(gtaDir) {
   return { stored: Buffer.from(hit.entry.stored), path: 'x64a.rpf/' + hit.path };
 }
 
-module.exports = { YtdFile, skydomeFromGame, DEFAULT_REL };
+/** GTA V folders that have x64a.rpf. FiveM writes the game path into
+ *  FiveM.app/CitizenFX.ini (IVPath=...), so FiveM players are found without asking. */
+function findGtaDirs({ citizenPath = null, knownExe = null, exes = [] } = {}) {
+  const out = [];
+  const add = (dir) => {
+    if (!dir) return;
+    const d = path.resolve(dir.trim().replace(/^"|"$/g, ''));
+    if (!out.includes(d) && fs.existsSync(path.join(d, 'x64a.rpf'))) out.push(d);
+  };
+  if (citizenPath) {
+    try {
+      const ini = fs.readFileSync(path.join(path.dirname(citizenPath), 'CitizenFX.ini'), 'utf8');
+      const m = /^\s*IVPath\s*=\s*(.+?)\s*$/im.exec(ini);
+      if (m) add(m[1]);
+    } catch (e) { /* no ini */ }
+  }
+  if (knownExe) add(path.dirname(knownExe));
+  for (const exe of exes) add(path.dirname(exe));
+  return out;
+}
+
+module.exports = { YtdFile, skydomeFromGame, findGtaDirs, DEFAULT_REL };

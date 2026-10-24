@@ -10,17 +10,19 @@ test('timecycle: parse finds colours, scalars and cycles; untouched files serial
   const tc = await tcP;
   const xml = buildTimecycle(['EXTRASUNNY', 'RAIN']);
   const model = tc.parse(xml);
-  assert.deepStrictEqual(model.sections.map((s) => s.label), ['EXTRASUNNY', 'RAIN']);
+  assert.deepStrictEqual(model.sections.map((s) => s.label), ['EXTRASUNNY / GLOBAL', 'EXTRASUNNY / URBAN', 'RAIN / GLOBAL', 'RAIN / URBAN']);
   const sec = model.sections[0];
-  assert.strictEqual(sec.colours.length, 9);
+  assert.strictEqual(sec.colours.length, 11);
   const zen = sec.colours.find((c) => c.name === 'sky_zenith_col');
   assert.strictEqual(zen.r.values.length, 9);
   assert.strictEqual(zen.role, 'zenith');
   assert.ok(sec.scalars.find((p) => p.name === 'lod_mult'));
-  const disc = sec.scalars.find((p) => p.name === 'sky_sun_disc_size');
-  assert.strictEqual(disc.form, 'attr');
-  assert.deepStrictEqual(disc.values, [2.5]);
   assert.strictEqual(tc.serialize(model), xml);
+  const attr = tc.parse('<a><cycle name="X"><b value="2.5"/></cycle></a>');
+  assert.strictEqual(attr.params[0].form, 'attr');
+  assert.deepStrictEqual(attr.params[0].values, [2.5]);
+  attr.params[0].values[0] = 4;
+  assert.strictEqual(tc.serialize(attr), '<a><cycle name="X"><b value="4"/></cycle></a>');
   assert.strictEqual(tc.isDirty(model), false);
 });
 
@@ -30,17 +32,20 @@ test('timecycle: edits touch only the edited values and survive a re-parse', asy
   const model = tc.parse(xml);
   const col = model.sections[1].colours.find((c) => c.name === 'sky_zenith_col');
   tc.setColour(col, 4, [1, 0, 0.5]);
-  model.sections[0].scalars.find((p) => p.name === 'sky_sun_disc_size').values[0] = 4;
+  model.sections[0].scalars.find((p) => p.name === 'sky_sun_disc_size').values[3] = 4;
   const out = tc.serialize(model);
   assert.notStrictEqual(out, xml);
   const again = tc.parse(out);
   const c2 = again.sections[1].colours.find((c) => c.name === 'sky_zenith_col');
   assert.deepStrictEqual([c2.r.values[4], c2.g.values[4], c2.b.values[4]], [1, 0, 0.5]);
-  assert.strictEqual(again.sections[0].scalars.find((p) => p.name === 'sky_sun_disc_size').values[0], 4);
+  assert.strictEqual(again.sections[0].scalars.find((p) => p.name === 'sky_sun_disc_size').values[3], 4);
+  assert.strictEqual(again.sections[0].scalars.find((p) => p.name === 'sky_sun_disc_size').values[2], 2.5);
+  // the same colour in the other region and the other weather is untouched
+  for (const i of [0, 2, 3]) assert.deepStrictEqual(tc.colourAt(again.sections[i].colours.find((c) => c.name === 'sky_zenith_col'), 4), tc.colourAt(tc.parse(xml).sections[i].colours.find((c) => c.name === 'sky_zenith_col'), 4));
   // everything else identical
   assert.strictEqual(again.sections[0].colours[0].r.values.join(), model.sections[0].colours[0].r.values.join());
   assert.ok(out.includes('<!-- fixture -->'));
-  assert.ok(out.includes('<sky_sun_disc_size value="4"/>'));
+  assert.ok(out.includes('<sky_sun_disc_size>2.5 2.5 2.5 4 2.5'));
   tc.revert(model);
   assert.strictEqual(tc.serialize(model), xml);
 });
@@ -156,7 +161,7 @@ test('ai: constant looks stay bright at night, FPS lowers only matching values',
   const xml = buildTimecycle();
   const day = ai.buildPack(ai.mergeSpec(ai.emptySpec(), ai.parsePrompt('sunset sky')), { a: xml });
   const m = tc.parse(day.files.a);
-  const hor = m.sections[0].colours.find((c) => c.name === 'sky_horizon_col');
+  const hor = m.sections[0].colours.find((c) => c.name === 'sky_azimuth_transition_col');
   assert.ok(tc.lum(tc.colourAt(hor, 0)) > 0.25, 'sunset look is kept at midnight: ' + tc.lum(tc.colourAt(hor, 0)));
 
   const fps = ai.buildPack(ai.mergeSpec(ai.emptySpec(), ai.parsePrompt('max fps')), { a: xml });
@@ -430,4 +435,30 @@ test('every renderer api.call has a handler in main.js', () => {
     }
   }
   assert.deepStrictEqual(missing, []);
+});
+
+const { findGtaDirs } = require('../src/core/skytex');
+
+test('GTA V is found through FiveM\'s CitizenFX.ini, so the sky file needs no popup', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'kt-gta-'));
+  const gta = path.join(root, 'Games', 'GTAV');
+  fs.mkdirSync(gta, { recursive: true });
+  fs.writeFileSync(path.join(gta, 'x64a.rpf'), 'x');
+  const cit = path.join(root, 'FiveM', 'FiveM.app', 'citizen');
+  fs.mkdirSync(cit, { recursive: true });
+  fs.writeFileSync(path.join(root, 'FiveM', 'FiveM.app', 'CitizenFX.ini'), '[Game]\r\nIVPath=' + gta + '\r\nUpdateChannel=production\r\n');
+  assert.deepStrictEqual(findGtaDirs({ citizenPath: cit }), [path.resolve(gta)]);
+  assert.deepStrictEqual(findGtaDirs({ citizenPath: cit, knownExe: path.join(gta, 'GTA5.exe') }), [path.resolve(gta)], 'no duplicates');
+  assert.deepStrictEqual(findGtaDirs({ citizenPath: path.join(root, 'nope', 'citizen') }), []);
+  assert.deepStrictEqual(findGtaDirs({ exes: [path.join(root, 'missing', 'GTA5.exe')] }), [], 'only folders that really have x64a.rpf');
+});
+
+test('editor shows plain names and splits weather from area', async () => {
+  const tc = await tcP;
+  assert.strictEqual(tc.labelOf('sky_zenith_col'), 'Sky colour (top)');
+  assert.strictEqual(tc.labelOf('sky_zenith_col_inten'), 'Sky (top) brightness');
+  assert.strictEqual(tc.labelOf('sky_stars_iten'), 'Stars brightness');
+  assert.strictEqual(tc.labelOf('light_artificial_ext_down_intensity'), 'Light artificial ext down intensity');
+  assert.deepStrictEqual(tc.splitSection('EXTRASUNNY / URBAN'), { weather: 'EXTRASUNNY', area: 'URBAN' });
+  assert.deepStrictEqual(tc.splitSection('Global'), { weather: 'Global', area: null });
 });

@@ -307,30 +307,36 @@ const TWEAK_ICON = { water: 'droplet', mountains: 'mountain', trees: 'tree', bus
 async function refreshWorld() {
   const tweaks = (await api.call('tweaks:list')).filter((t) => t.kind !== 'pack');
   const grid = $('#world-grid');
-  grid.innerHTML = tweaks.map((t) => `
-    <div class="card tweak ${t.enabled ? 'on' : ''}" data-id="${t.id}">
+  // A switch only makes sense once there are files to switch. Until then the card says so.
+  grid.innerHTML = tweaks.map((t) => {
+    const ready = t.hasFiles;
+    const state = !ready ? 'Not set up' : t.enabled ? t.onLabel : t.offLabel;
+    const desc = ready ? t.description : (t.builtin ? 'None of your packs added the files for this yet. If your pack comes with ' + t.name.toLowerCase() + ' removal files, add them here and you can switch it on and off.' : t.description);
+    return `
+    <div class="card tweak ${t.enabled ? 'on' : ''} ${ready ? '' : 'unset'}" data-id="${t.id}">
       <div class="tweak-top">
         <div class="tweak-icon"><div class="wave"></div>${icon(TWEAK_ICON[t.id] || 'layers')}</div>
-        <div><span class="big-state">${t.enabled ? t.onLabel : t.offLabel}</span><h3>${esc(t.name)}</h3><p>${esc(t.description)}</p></div>
+        <div><span class="big-state">${esc(state)}</span><h3>${esc(t.name)}</h3><p>${esc(desc)}</p></div>
       </div>
-      <div class="files">${t.hasFiles ? esc(t.files.slice(0, 3).join('  ·  ')) + (t.files.length > 3 ? '  +' + (t.files.length - 3) : '') : 'No files loaded yet'}</div>
+      <div class="files">${ready ? esc(t.files.slice(0, 3).join('  ·  ')) + (t.files.length > 3 ? '  +' + (t.files.length - 3) : '') : 'No files added'}</div>
       <div class="state">
-        <div class="seg">
+        ${ready ? `<div class="seg">
           <button data-v="off" class="${t.enabled ? '' : 'on'}">${esc(t.offLabel)}</button>
           <button data-v="on" class="${t.enabled ? 'on' : ''}">${esc(t.onLabel)}</button>
           <i class="seg-thumb"></i>
-        </div>
+        </div>` : '<span></span>'}
         <div class="head-actions">
-          <button class="btn ghost sm" data-act="load">${icon('upload')}${t.customFiles ? 'Replace files' : t.id === 'water' ? 'Custom water.xml' : 'Load files'}</button>
+          <button class="btn ${ready ? 'ghost' : 'primary'} sm" data-act="load">${icon('upload')}${t.customFiles ? 'Replace files' : t.id === 'water' ? 'Custom water.xml' : 'Add files'}</button>
           ${t.builtin ? '' : `<button class="icon-btn" data-act="remove" title="Remove">${icon('trash')}</button>`}
         </div>
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
   stagger(grid);
   $$('.tweak', grid).forEach((card) => {
     const t = tweaks.find((x) => x.id === card.dataset.id);
     const seg = $('.seg', card);
-    requestAnimationFrame(() => syncSeg(seg));
+    if (seg) requestAnimationFrame(() => syncSeg(seg));
     $$('.seg button', card).forEach((b) => (b.onclick = async () => {
       const on = b.dataset.v === 'on';
       if (on === t.enabled) return;
