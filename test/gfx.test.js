@@ -182,26 +182,13 @@ test('ai: world switches are returned for the tweak layer', async () => {
   assert.deepStrictEqual(res.tweaks, { water: true, trees: false });
 });
 
-test('ai: validateSpec drops anything the model got wrong', async () => {
-  const ai = await aiP;
-  const s = ai.validateSpec({ name: 'x'.repeat(100), sky: { zenith: '#fff', horizon: '#000000', sun: '#000000', cloud: '#000000', fog: '#000000' }, grade: { tint: 'red', strength: 7, saturation: -4 }, world: { water: 'remove', trees: 'maybe', evil: 'remove' }, fps: 99 });
-  assert.strictEqual(s.name.length, 40);
-  assert.strictEqual(s.sky, null);
-  assert.strictEqual(s.grade.strength, 1);
-  assert.strictEqual(s.grade.saturation, 0);
-  assert.strictEqual(s.grade.tint, undefined);
-  assert.deepStrictEqual(s.world, { water: 'remove' });
-  assert.strictEqual(s.fps, 3);
-  assert.deepStrictEqual(ai.extractJson('Sure!\n```json\n{"fps": 2}\n```'), { fps: 2 });
-  assert.throws(() => ai.extractJson('no json here'));
-});
-
 // ---------- main-process side ----------
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { CitizenManager } = require('../src/core/citizen');
-const { AiKey, askClaude } = require('../src/core/ai');
+const { YtdFile } = require('../src/core/skytex');
+const { describePack, editableTimecycles, mergeForPack, createPackWithTweaks } = require('../src/core/gfxpack');
 
 function makeCitizen() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'kt-gfx-'));
@@ -261,34 +248,6 @@ test('trees, bushes and props are world switches that need their files first', (
   assert.ok(m.listTweaks().find((t) => t.id === 'water').enabled);
 });
 
-test('ai: key is stored privately and validated', () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kt-key-'));
-  const k = new AiKey(path.join(dir, 'ai.json'));
-  assert.strictEqual(k.get(), null);
-  assert.throws(() => k.set('hunter2'), /sk-ant-/);
-  assert.strictEqual(k.set('sk-ant-api03-abcdefghijkl'), true);
-  assert.strictEqual(k.get(), 'sk-ant-api03-abcdefghijkl');
-  assert.strictEqual(k.set(''), false);
-  assert.strictEqual(k.get(), null);
-});
-
-test('ai: Claude request is shaped correctly and errors are readable', async () => {
-  let seen;
-  const ok = async (url, init) => { seen = { url, init, body: JSON.parse(init.body) }; return { ok: true, status: 200, json: async () => ({ content: [{ type: 'text', text: '{"fps":2}' }] }) }; };
-  const text = await askClaude({ key: 'sk-ant-x', system: 'sys', prompt: 'hello', image: { mediaType: 'image/jpeg', data: 'AAAA' }, fetchImpl: ok });
-  assert.strictEqual(text, '{"fps":2}');
-  assert.strictEqual(seen.url, 'https://api.anthropic.com/v1/messages');
-  assert.strictEqual(seen.init.headers['x-api-key'], 'sk-ant-x');
-  assert.strictEqual(seen.init.headers['anthropic-version'], '2023-06-01');
-  assert.strictEqual(seen.body.messages[0].content[0].type, 'image');
-  assert.strictEqual(seen.body.messages[0].content[1].text, 'hello');
-  const denied = async () => ({ ok: false, status: 401, json: async () => ({ error: { message: 'invalid x-api-key' } }) });
-  await assert.rejects(askClaude({ key: 'sk-ant-x', system: '', prompt: 'p', fetchImpl: denied }), /key was rejected/);
-  await assert.rejects(askClaude({ key: null, system: '', prompt: 'p', fetchImpl: ok }), /API key/);
-  await assert.rejects(askClaude({ key: 'k', system: '', prompt: 'p', image: { mediaType: 'text/html', data: 'x' }, fetchImpl: ok }), /cannot be sent/);
-  const down = async () => { throw new Error('ENOTFOUND'); };
-  await assert.rejects(askClaude({ key: 'k', system: '', prompt: 'p', fetchImpl: down }), /Could not reach/);
-});
 
 test('ai: "add stars, bigger moon, no fog" become adjustments; negated words are not moods', async () => {
   const ai = await aiP;
@@ -342,16 +301,6 @@ test('ai: sky picture keeps star intensity on at night, all-day mode darkens the
   assert.ok(tc.lum(z2) < tc.lum(z1) * 0.3);
   assert.ok(day.report.some((r) => /all the time/.test(r.text)));
 });
-
-test('ai: validateSpec keeps valid adjustments and the sky picture flag', async () => {
-  const ai = await aiP;
-  const s = ai.validateSpec({ adjust: { stars: 'more', moon: 'explode', hack: 'none' }, skyImage: { allDay: 'yes' } });
-  assert.deepStrictEqual(s.adjust, { stars: 'more' });
-  assert.deepStrictEqual(s.skyImage, { allDay: true }, 'the picture shows all the time unless told otherwise');
-});
-
-const { YtdFile } = require('../src/core/skytex');
-const { describePack, editableTimecycles, mergeForPack, createPackWithTweaks } = require('../src/core/gfxpack');
 
 test('sky texture: finds the starfield, replaces it in place, and the result reopens', () => {
   const ytd = new YtdFile(buildYtd(['moon', 'starfield']), 'skydome.ytd');
@@ -615,4 +564,100 @@ test('ai: PvP, always night, no sun', async () => {
   assert.ok(tc.lum(tc.colourAt(zen, 4)) < tc.lum(tc.colourAt(orig, 4)) * 0.3, 'noon is now night-dark');
   assert.ok(sec.scalars.find((p2) => p2.name === 'sky_sun_disc_size').values.every((v) => v === 0), 'no sun = no sun disc');
   assert.ok(res.report.some((r) => /Always night/.test(r.text)));
+});
+
+test('custom background: picture or video is copied in, settings are clamped, reset removes it', () => {
+  const { Appearance } = require('../src/core/appearance');
+  const { m } = makeCitizen();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kt-look-'));
+  const look = new Appearance(m, path.join(dir, 'data'));
+  const pic = path.join(dir, 'wall.png');
+  fs.writeFileSync(pic, Buffer.from('png-bytes'));
+  assert.throws(() => look.setFile(path.join(dir, 'x.exe')), /picture/);
+  look.setFile(pic);
+  fs.rmSync(pic);
+  const l = look.load();
+  assert.strictEqual(l.kind, 'image');
+  assert.strictEqual(Buffer.from(l.data).toString(), 'png-bytes', 'still there after the original is deleted');
+  assert.deepStrictEqual([look.set({ dim: 5, blur: -3 }).dim, look.get().blur], [0.95, 0]);
+  const vid = path.join(dir, 'loop.mp4');
+  fs.writeFileSync(vid, 'mp4');
+  assert.strictEqual(look.setFile(vid).kind, 'video');
+  assert.strictEqual(look.clear().kind, null);
+  assert.strictEqual(look.load().data, null);
+});
+
+// ---------- clouds (cloudhat_*.ytd) and RPFs with any name ----------
+const { listCloudSources, openCloudSource, cloudName } = require('../src/core/clouds');
+const { findInFile } = require('../src/core/rpfscan');
+
+const resOf = (name, stored) => ({ type: 'res', name, stored, sysFlags: stored.readUInt32LE(8), gfxFlags: stored.readUInt32LE(12) });
+const binOf = (name, buf) => ({ type: 'bin', name, stored: buf, compressed: false, size: buf.length });
+
+test('clouds in a mods RPF with any name are found, edited and installed; Undo restores the original', async () => {
+  const { m, cit } = makeCitizen();
+  const mods = path.join(path.dirname(cit), 'mods');
+  fs.mkdirSync(mods, { recursive: true });
+  const inner = rpf.writeRpf({ type: 'dir', name: '', children: [{ type: 'dir', name: 'x64', children: [
+    resOf('cloudhat_wispy.ytd', buildYtd(['cloudhat_wispy_d', 'cloudhat_wispy_n'], 64, 64)),
+    resOf('cloudhat_nimbus.ytd', buildYtd(['cloudhat_nimbus_d'], 64, 64)),
+    resOf('skydome.ytd', buildYtd(['starfield'], 64, 64)),
+  ] }] });
+  const original = rpf.writeRpf({ type: 'dir', name: '', children: [{ type: 'dir', name: 'content', children: [binOf('zz_my_mate_pack.rpf', inner)] }] });
+  fs.writeFileSync(path.join(mods, 'Totally Random Name 2.rpf'), original);
+  fs.writeFileSync(path.join(mods, 'cars.rpf'), rpf.writeRpf({ type: 'dir', name: '', children: [] }));
+
+  const ctx = { pack: null, mgr: m, gtaDirs: () => [], unlock: null };
+  const sources = await listCloudSources(ctx);
+  assert.deepStrictEqual(sources.map((x) => [x.id, x.count]), [['mods:Totally Random Name 2.rpf', 2]]);
+  const src = await openCloudSource(sources[0].id, ctx);
+  assert.deepStrictEqual(src.items.map((x) => x.name).sort(), ['Nimbus', 'Wispy']);
+  const wispy = src.items.find((x) => x.name === 'Wispy');
+  const t = wispy.ytd.textures[1];
+  src.replace(wispy.key, 1, new Uint8Array(t.dataSize).fill(0x5c));
+  const out = src.outputs();
+  assert.deepStrictEqual(Object.keys(out), ['@mods/Totally Random Name 2.rpf']);
+
+  const res = createPackWithTweaks(m, 'Custom clouds', {}, {}, { extra: out }, (rel) => fs.readFileSync(m.absFor(rel)));
+  assert.deepStrictEqual(res.verified, ['@mods/Totally Random Name 2.rpf']);
+  const again = await openCloudSource('mods:Totally Random Name 2.rpf', ctx);
+  const w2 = again.items.find((x) => x.name === 'Wispy').ytd.describe(true);
+  assert.ok(w2[1].data.every((b) => b === 0x5c), 'edited texture is in the installed file');
+  assert.ok(w2[0].data.every((b) => b === 0x11), 'the other texture is untouched');
+  m.setTweak(res.id, false);
+  assert.deepStrictEqual(fs.readFileSync(path.join(mods, 'Totally Random Name 2.rpf')), original, 'switching off puts the original back exactly');
+});
+
+test('stock clouds from GTA V go into a new mods/kt_clouds.rpf, the game files are never touched', async () => {
+  const { m, cit } = makeCitizen();
+  const gta = fs.mkdtempSync(path.join(os.tmpdir(), 'kt-gta-clouds-'));
+  const vclouds = rpf.writeRpf({ type: 'dir', name: '', children: [resOf('cloudhat_cirro.ytd', buildYtd(['cirro'], 64, 64)), resOf('cloudhat_clear01.ytd', buildYtd(['clear'], 64, 64))] });
+  const x64b = rpf.writeRpf({ type: 'dir', name: '', children: [{ type: 'dir', name: 'levels', children: [{ type: 'dir', name: 'gta5', children: [{ type: 'dir', name: 'cloudhats', children: [binOf('v_clouds.rpf', vclouds)] }] }] }] });
+  fs.writeFileSync(path.join(gta, 'x64b.rpf'), x64b);
+  fs.writeFileSync(path.join(gta, 'x64a.rpf'), rpf.writeRpf({ type: 'dir', name: '', children: [] }));
+  const ctx = { pack: null, mgr: m, gtaDirs: () => [gta], unlock: null };
+  const sources = await listCloudSources(ctx);
+  assert.deepStrictEqual(sources.map((x) => x.id), ['game:x64b.rpf']);
+  const src = await openCloudSource('game:x64b.rpf', ctx);
+  assert.deepStrictEqual(src.items.map((x) => x.name), ['Cirrus', 'Clear']);
+  assert.deepStrictEqual(src.outputs(), {}, 'nothing to install before an edit');
+  src.replace(0, 0, new Uint8Array(src.items[0].ytd.textures[0].dataSize).fill(0x21));
+  const out = src.outputs();
+  const res = createPackWithTweaks(m, 'Custom clouds', {}, {}, { extra: out }, (rel) => fs.readFileSync(m.absFor(rel)));
+  assert.deepStrictEqual(res.verified, ['@mods/kt_clouds.rpf']);
+  const made = rpf.readRpf(fs.readFileSync(path.join(path.dirname(cit), 'mods', 'kt_clouds.rpf')));
+  assert.deepStrictEqual(made.children.map((c) => c.name), ['cloudhat_cirro.ytd']);
+  assert.deepStrictEqual(fs.readFileSync(path.join(gta, 'x64b.rpf')), x64b, 'GTA V files untouched');
+});
+
+test('sky is found in a pack RPF whatever it is called, and RPFs without a sky are never loaded', async () => {
+  const { m, cit } = makeCitizen();
+  const mods = path.join(path.dirname(cit), 'mods');
+  fs.mkdirSync(mods, { recursive: true });
+  fs.writeFileSync(path.join(mods, 'aaa_nothing_here.rpf'), rpf.writeRpf({ type: 'dir', name: '', children: [binOf('big.bin', Buffer.alloc(200000))] }));
+  fs.writeFileSync(path.join(mods, 'x_pvp_v4_final.rpf'), skyRpf({ nested: true }));
+  const got = await openSkySource('mods', { pack: null, mgr: m, gtaDirs: () => [], unlock: null });
+  assert.strictEqual(got.rel, '@mods/x_pvp_v4_final.rpf');
+  assert.deepStrictEqual(findInFile(path.join(mods, 'x_pvp_v4_final.rpf'), (n) => n === 'skydome.ytd').map((x) => x.path), ['x64a.rpf/textures/skydome.ytd']);
+  assert.strictEqual(cloudName('cloudhat_stormy.ytd'), 'Stormy');
 });

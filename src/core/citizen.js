@@ -624,6 +624,17 @@ class CitizenManager {
     return null;
   }
 
+  /** Every file under citizen whose name matches re, as citizen-relative paths. */
+  findAllInCitizen(re) {
+    const c = this.state.citizenPath;
+    if (!c || !fs.existsSync(c)) return [];
+    const out = [];
+    for (const top of ['platform', 'common']) {
+      for (const f of listFiles(path.join(c, top))) if (re.test(path.basename(f))) out.push(top + '/' + f);
+    }
+    return out;
+  }
+
   /** Make a new graphics pack. files: { rel: string | Buffer | { from: absPath } }. It starts switched off. */
   createPack(name, files) {
     const entries = Object.entries(files || {});

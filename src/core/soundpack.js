@@ -6,6 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const rpf = require('./rpf');
 const awc = require('./awc');
+const { gunName, streamName } = require('./gunnames');
 
 function categorize(archiveName, bankPath) {
   const s = (archiveName + '/' + bankPath).toLowerCase();
@@ -38,7 +39,7 @@ class SoundPack {
         } else if (ext === '.awc') {
           this.banks.push({
             id: this.banks.length, archiveId: archive.id, path: full, entry,
-            name: path.basename(entry.name, '.awc'), category: categorize(archive.name, full),
+            name: path.basename(entry.name, '.awc'), category: categorize(archive.name, full), gun: gunName(path.basename(entry.name, '.awc')),
             size: entry.size, edits: new Map(), parsed: null, error: null,
           });
         }
@@ -59,7 +60,7 @@ class SoundPack {
   describe() {
     return {
       archives: this.archives.map((a) => ({ id: a.id, name: a.name, file: a.file, banks: this.banks.filter((b) => b.archiveId === a.id).length, edits: this.editCount(a.id) })),
-      banks: this.banks.map((b) => ({ id: b.id, archiveId: b.archiveId, name: b.name, path: b.path, category: b.category, size: b.size, edits: b.edits.size })),
+      banks: this.banks.map((b) => ({ id: b.id, archiveId: b.archiveId, name: b.name, gun: b.gun, path: b.path, category: b.gun ? 'guns' : b.category, size: b.size, edits: b.edits.size })),
     };
   }
 
@@ -76,7 +77,7 @@ class SoundPack {
 
   streams(bankId) {
     const b = this.bank(bankId);
-    return { multichannel: b.parsed.multichannel, streams: awc.describeAwc(b.parsed).map((s) => ({ ...s, edited: b.edits.has(s.id) })) };
+    return { multichannel: b.parsed.multichannel, gun: b.gun, streams: awc.describeAwc(b.parsed).map((s) => ({ ...s, gun: streamName(s.id), edited: b.edits.has(s.id) })) };
   }
 
   pcm(bankId, streamId, original = false) {

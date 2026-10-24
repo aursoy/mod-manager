@@ -2,9 +2,7 @@
 //
 //   prompt (+ image)  ->  spec  ->  buildPack(spec, timecycle files)  ->  edited files + tweak switches
 //
-// The spec comes from a built-in prompt reader that works offline. When the user
-// has added an Anthropic API key, Claude can write the spec instead (see
-// LLM_SYSTEM and validateSpec); the pack builder is the same either way.
+// The spec comes from the built-in prompt reader; it works offline.
 
 import { parse, serialize, keyHours, daylight, twilight, mix, lum, clamp01, hexToRgb, rgbToHex, gradeColours, setColour } from './timecycle.js';
 
@@ -263,80 +261,6 @@ export function mergeSpec(base, patch) {
     if (b.saturation != null && a.saturation != null && !patch._replaceGrade) out.grade.saturation = a.saturation * b.saturation;
   }
   return out;
-}
-
-const isHex = (s) => typeof s === 'string' && /^#[0-9a-fA-F]{6}$/.test(s);
-
-/** Checks anything that did not come from our own parser (the LLM) and drops what is invalid. */
-export function validateSpec(raw) {
-  const spec = emptySpec();
-  if (!raw || typeof raw !== 'object') return spec;
-  if (typeof raw.name === 'string') spec.name = raw.name.slice(0, 40);
-  if (typeof raw.mood === 'string') spec.mood = raw.mood.slice(0, 24);
-  if (raw.sky && typeof raw.sky === 'object') {
-    const keys = ['zenith', 'horizon', 'sun', 'cloud', 'fog'];
-    if (keys.every((k) => isHex(raw.sky[k]))) {
-      spec.sky = Object.fromEntries(keys.map((k) => [k, raw.sky[k].toLowerCase()]));
-      spec.sky.strength = clamp01(Number.isFinite(+raw.sky.strength) ? +raw.sky.strength : 0.85);
-    }
-  }
-  if (raw.grade && typeof raw.grade === 'object') {
-    const g = {};
-    if (isHex(raw.grade.tint)) g.tint = raw.grade.tint.toLowerCase();
-    if (Number.isFinite(+raw.grade.strength)) g.strength = clamp01(+raw.grade.strength);
-    if (Number.isFinite(+raw.grade.brightness)) g.brightness = Math.max(-1, Math.min(1, +raw.grade.brightness));
-    if (Number.isFinite(+raw.grade.saturation)) g.saturation = Math.max(0, Math.min(2, +raw.grade.saturation));
-    if (Object.keys(g).length) spec.grade = g;
-  }
-  if (raw.world && typeof raw.world === 'object') {
-    for (const k of WORLD_KEYS) if (raw.world[k] === 'remove' || raw.world[k] === 'keep') spec.world[k] = raw.world[k];
-  }
-  if (Number.isFinite(+raw.fps)) spec.fps = Math.max(0, Math.min(3, Math.round(+raw.fps)));
-  spec.constant = raw.constant === true;
-  if (raw.adjust && typeof raw.adjust === 'object') {
-    for (const k of Object.keys(ADJUST)) if (ADJUST_OPS.includes(raw.adjust[k])) spec.adjust[k] = raw.adjust[k];
-  }
-  if (raw.skyImage && typeof raw.skyImage === 'object') spec.skyImage = { allDay: raw.skyImage.allDay !== false };
-  if (raw.timeLock === 'night' || raw.timeLock === 'day') spec.timeLock = raw.timeLock;
-  return spec;
-}
-
-export const LLM_SYSTEM = `You turn a player's request into a JSON "graphics pack spec" for a GTA V / FiveM timecycle editor. Reply with ONLY a JSON object, no prose, no code fence.
-
-Schema:
-{
-  "name": string (short pack name),
-  "mood": string or null,
-  "sky": null | { "zenith": "#rrggbb", "horizon": "#rrggbb", "sun": "#rrggbb", "cloud": "#rrggbb", "fog": "#rrggbb", "strength": 0..1 },
-  "grade": null | { "tint": "#rrggbb", "strength": 0..1, "brightness": -1..1, "saturation": 0..2 },
-  "world": { "water"?: "remove"|"keep", "mountains"?: "remove"|"keep", "trees"?: "remove"|"keep", "bushes"?: "remove"|"keep", "props"?: "remove"|"keep" },
-  "fps": 0..3,
-  "constant": boolean,
-  "adjust": { "stars"?: A, "moon"?: A, "sun"?: A, "clouds"?: A, "fog"?: A, "bloom"?: A }   where A is "more"|"less"|"none"|"bigger"|"smaller",
-  "skyImage": null | { "allDay": boolean },
-  "timeLock": null | "night" | "day"
-}
-
-Rules:
-- "sky" holds the MIDDAY sky colours. If an image is attached and the player wants it as the sky, read its colours: zenith = top of the sky, horizon = colour near the horizon, sun = brightest/warmest highlight, cloud = cloud colour, fog = hazy horizon colour.
-- "grade" is an overall colour grade; leave null when not asked for.
-- "world" only lists things the player mentioned. "remove" = no water / no trees etc, "keep" = have them.
-- "fps": 0 = not asked, 1 = light boost, 2 = boost, 3 = maximum performance.
-- "constant": true only when the look should stay the same all day and night.
-- "adjust": only things the player asked to change ("add stars" = stars more, "bigger moon" = moon bigger, "no fog" = fog none).
-- "skyImage": when an image is attached and the player wants it to BE the sky (the default when an image is attached), set it. "allDay" defaults to true (the picture is always visible); false only if they say "only at night". Set null if they only want the image's colours.
-- "timeLock": "night" for "always night" / "no day" / "only night" packs, "day" for "always day". Otherwise null.
-- "adjust" also takes "blur" (distance blur / depth of field).
-- These players mostly want PvP packs, not realistic ones: clear view, no fog, no glare, vivid colours, high FPS. "pvp pack" means fps 2, adjust fog, bloom and blur "none", grade saturation about 1.25 and brightness about 0.08.
-- Never invent fields. Colours are always 7-character hex strings.`;
-
-/** Pulls the JSON object out of a model reply, tolerating a stray fence or sentence. */
-export function extractJson(text) {
-  const s = String(text || '');
-  const start = s.indexOf('{');
-  const end = s.lastIndexOf('}');
-  if (start < 0 || end <= start) throw new Error('The AI did not return a pack spec.');
-  return JSON.parse(s.slice(start, end + 1));
 }
 
 // ---------- spec -> files ----------

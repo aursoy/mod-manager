@@ -13,8 +13,10 @@ const path = require('path');
 const rpf = require('./rpf');
 const { YtdFile, RpfSky, skydomeFromGame, DEFAULT_REL } = require('./skytex');
 const { readStaged } = require('./gfxpack');
+const { findInFile } = require('./rpfscan');
 
-const MAX_RPF = 768 * 1048576;
+const MAX_RPF = 2000 * 1048576;
+const IS_SKY = (n) => n.toLowerCase() === 'skydome.ytd';
 // Look at the archives most likely to hold a sky first.
 const SKYISH = /sky|cloud|star|weather|graphic|visual|nve|qrv|tc|time/i;
 const bySkyName = (a, b) => (SKYISH.test(path.basename(b)) ? 1 : 0) - (SKYISH.test(path.basename(a)) ? 1 : 0);
@@ -31,6 +33,14 @@ async function withKeys(fn, unlock) {
 async function firstRpfSky(list, unlock) {
   let locked = null;
   for (const item of list.sort((a, b) => bySkyName(a.rel, b.rel))) {
+    // On disk, read only the archive's file list first: whatever the RPF is called,
+    // it is opened only if a skydome.ytd is really inside.
+    if (item.file) {
+      try {
+        if (fs.statSync(item.file).size > MAX_RPF) continue;
+        if (!(await withKeys(() => findInFile(item.file, IS_SKY), unlock)).length) continue;
+      } catch (e) { if (e.code === rpf.NEED_KEYS) locked = e; continue; }
+    }
     let buf;
     try { buf = item.read(); } catch (e) { continue; }
     if (!buf || buf.length > MAX_RPF) continue;
@@ -49,7 +59,7 @@ function modsRpfs(citizenPath) {
   if (!citizenPath) return [];
   const dir = path.join(path.dirname(citizenPath), 'mods');
   try {
-    return fs.readdirSync(dir).filter((n) => /\.rpf$/i.test(n)).map((n) => ({ rel: '@mods/' + n, label: 'mods / ' + n, read: () => fs.readFileSync(path.join(dir, n)) }));
+    return fs.readdirSync(dir).filter((n) => /\.rpf$/i.test(n)).map((n) => ({ rel: '@mods/' + n, label: 'mods / ' + n, file: path.join(dir, n), read: () => fs.readFileSync(path.join(dir, n)) }));
   } catch (e) { return []; }
 }
 
@@ -63,7 +73,7 @@ async function openSkySource(source, ctx) {
   }
   if (source === 'pack-rpf') {
     if (!pack) return null;
-    const list = pack.staged.filter((s) => /\.rpf$/i.test(s.rel)).map((s) => ({ rel: s.rel, label: pack.info.name + ' / ' + path.basename(s.rel), read: () => readStaged(s) }));
+    const list = pack.staged.filter((s) => /\.rpf$/i.test(s.rel)).map((s) => ({ rel: s.rel, label: pack.info.name + ' / ' + path.basename(s.rel), file: s.from || null, read: () => readStaged(s) }));
     return firstRpfSky(list, ctx.unlock);
   }
   if (source === 'mods') return firstRpfSky(modsRpfs(mgr.state.citizenPath), ctx.unlock);

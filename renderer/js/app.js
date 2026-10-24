@@ -4,6 +4,7 @@ import { initBackground, initInteractions, syncSeg, countUp, stagger, busy, fill
 import { initKeys } from './keys.js';
 import { initStudio, refreshStudio, handleDrop as studioDrop } from './tcstudio.js';
 import * as TC from './timecycle.js';
+import { initLook, setBackgroundFile } from './look.js';
 import { drawScene } from './tcpreview.js';
 import { initPages, refreshMods, refreshPresets, refreshCache, refreshProfile, addModFiles } from './pages.js';
 
@@ -467,6 +468,7 @@ function initDrop() {
     else if (currentPage === 'gun') openGunFile(paths[0]);
     else if (currentPage === 'sound') handleSoundDrop(paths);
     else if (currentPage === 'mods') addModFiles(paths);
+    else if (currentPage === 'settings' && /\.(png|jpe?g|webp|gif|bmp|mp4|webm)$/i.test(paths[0])) setBackgroundFile(paths[0]);
     else notify.info('Drop on a card', 'Drag files onto the tweak you want them for.');
   });
 }
@@ -518,6 +520,7 @@ async function boot() {
   safe('initWorld', initWorld);
   safe('initBackups', initBackups);
   safe('initSettings', initSettings);
+  safe('initLook', initLook);
   safe('initDrop', initDrop);
   safe('initKeys', initKeys);
   safe('initPages', () => initPages({ modal, go }));

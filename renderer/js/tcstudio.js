@@ -9,6 +9,7 @@ import * as AI from './gfxai.js';
 import { drawScene } from './tcpreview.js';
 import { encode as encodeTex } from './dxt.js';
 import { cleanError } from './keys.js';
+import { initCloudLab, enterCloudLab } from './cloudlab.js';
 
 const api = window.api;
 const $ = (s, r = document) => r.querySelector(s);
@@ -411,7 +412,7 @@ async function enterEditor() {
 // =====================================================================
 
 const aip = {
-  spec: AI.emptySpec(), image: null, pack: null, result: null, log: [], hasKey: false, installed: null,
+  spec: AI.emptySpec(), image: null, pack: null, result: null, log: [], installed: null,
   hour: 12, playing: null, preview: null, busy: false, sky: null, // sky: { label, rel, tex, forImage, error }
 };
 
@@ -431,13 +432,8 @@ function greet() {
     Then say what you want, like <i>pvp pack</i>, <i>always night</i>, <i>no fog</i>, <i>no sun</i>, <i>add stars</i>, <i>bigger moon</i>, <i>no water</i> or <i>max FPS</i>. I install it for you straight away, and <b>Undo</b> puts everything back.`);
 }
 
-async function refreshAiEngine() {
-  try { aip.hasKey = (await api.call('ai:status')).hasKey; } catch (e) { aip.hasKey = false; }
-  $('#aip-engine').textContent = aip.hasKey ? 'Using Claude · understands any request' : 'Built-in · works offline · add a key in Settings for Claude';
-  const st = $('#ai-key-state');
-  if (st) st.textContent = aip.hasKey ? 'A key is saved on this PC. Claude writes your packs.' : 'Optional. Lets Claude understand any request and look at your pictures.';
-  const btn = $('#ai-key-btn');
-  if (btn) btn.textContent = aip.hasKey ? 'Remove key' : 'Add key';
+function refreshAiEngine() {
+  $('#aip-engine').textContent = 'Works offline · just say what you want';
 }
 
 function loadImageEl(url) {
@@ -458,13 +454,7 @@ async function attachImage(file) {
   const sctx = small.getContext('2d', { willReadFrequently: true });
   sctx.drawImage(img, 0, 0, small.width, small.height);
   const palette = AI.extractPalette(sctx.getImageData(0, 0, small.width, small.height));
-  // A smaller JPEG is all Claude needs to read the sky.
-  const big = document.createElement('canvas');
-  const k2 = Math.min(1, 1024 / Math.max(img.width, img.height));
-  big.width = Math.max(1, Math.round(img.width * k2)); big.height = Math.max(1, Math.round(img.height * k2));
-  big.getContext('2d').drawImage(img, 0, 0, big.width, big.height);
-  const llm = { mediaType: 'image/jpeg', data: big.toDataURL('image/jpeg', 0.85).split(',')[1] };
-  aip.image = { name: file.name, url, img, palette, llm, id: file.name + ':' + img.width + 'x' + img.height + ':' + file.data.length };
+  aip.image = { name: file.name, url, img, palette, id: file.name + ':' + img.width + 'x' + img.height + ':' + file.data.length };
   $('#aip-thumb').src = url;
   $('#aip-img-name').textContent = file.name;
   $('#aip-img-meta').textContent = img.width + '×' + img.height + ' · becomes your sky';
@@ -618,12 +608,6 @@ async function pickSkyFile() {
 
 // ---------- create ----------
 
-async function askClaude(text) {
-  const prompt = (aip.image ? 'A picture is attached.\n' : '') + (aip.pack ? 'The player loaded the pack "' + aip.pack.name + '" to build on.\n' : '')
-    + 'Current pack spec (update it, do not start over unless asked): ' + JSON.stringify(aip.spec) + '\n\nPlayer request: ' + (text || '(only a picture: make it the sky)');
-  const reply = await api.call('ai:ask', { system: AI.LLM_SYSTEM, prompt, image: aip.image ? aip.image.llm : null });
-  return AI.validateSpec(AI.extractJson(reply));
-}
 
 async function generate() {
   if (aip.busy) return;
@@ -637,24 +621,12 @@ async function generate() {
   bubble('user', (aip.image ? `<span class="att">${icon('image')}${esc(aip.image.name)}</span>` : '') + esc(text || 'Make this picture my sky.'));
   input.value = '';
   try {
-    let spec = null;
-    let engine = 'built-in';
     const patch = AI.parsePrompt(text);
-    if (aip.hasKey) {
-      try { spec = await askClaude(text); engine = 'Claude'; } catch (e) {
-        bubble('ai', `Claude could not answer (${esc(e.message)}), so I used the built-in reader.`);
-      }
+    if (aip.image) {
+      patch.sky = { ...pick(aip.image.palette), strength: 0.85 };
+      patch.skyImage = patch.imageUse === 'colours' ? null : { allDay: !!patch.imageAllDay };
     }
-    if (spec) {
-      if (aip.image && !spec.sky) spec.sky = { ...pick(aip.image.palette), strength: 0.85 };
-      aip.spec = spec;
-    } else {
-      if (aip.image) {
-        patch.sky = { ...pick(aip.image.palette), strength: 0.85 };
-        patch.skyImage = patch.imageUse === 'colours' ? null : { allDay: !!patch.imageAllDay };
-      }
-      aip.spec = AI.mergeSpec(aip.spec, patch);
-    }
+    aip.spec = AI.mergeSpec(aip.spec, patch);
     if (!aip.image) aip.spec.skyImage = null;
     if (AI.isEmptySpec(aip.spec)) {
       bubble('ai', "I didn't catch anything to change. Try <i>add stars</i>, <i>sunset sky</i>, <i>no water</i>, <i>no trees</i>, <i>FPS boost</i>, or add a picture.");
@@ -694,7 +666,7 @@ async function generate() {
     }
     aip.result = { ...res, name: AI.packName(aip.spec), base: files, skyOk };
     showResult();
-    bubble('ai', `Made <b>${esc(aip.result.name)}</b> <small>(${engine})</small>:<br>${lines.join('<br>')}`);
+    bubble('ai', `Made <b>${esc(aip.result.name)}</b>:<br>${lines.join('<br>')}`);
     // The manager does the work: install straight away (Undo puts it all back).
     if (Object.keys(res.files).length || Object.keys(res.tweaks).length || skyOk || aip.pack) await installAi();
   } catch (e) {
@@ -843,27 +815,6 @@ function initAi() {
   greet();
 }
 
-// ---------- settings: API key ----------
-function initKey() {
-  const btn = $('#ai-key-btn');
-  if (!btn) return;
-  btn.onclick = async () => {
-    try {
-      if (aip.hasKey) {
-        if (!(await ctx.modal({ title: 'Remove the saved key?', text: 'Pack AI goes back to the built-in reader.', confirm: 'Remove', danger: true }))) return;
-        await api.call('ai:setKey', '');
-        notify.success('Key removed', 'Pack AI is using the built-in reader.');
-      } else {
-        const key = await ctx.modal({ title: 'Anthropic API key', text: 'Paste a key from console.anthropic.com. It is stored only on this PC and only used when you press Create. Requests go straight to Anthropic.', confirm: 'Save key', input: { label: 'API key (sk-ant-…)', value: '' } });
-        if (!key) return;
-        await api.call('ai:setKey', key);
-        notify.success('Key saved', 'Pack AI will use Claude from now on.');
-      }
-    } catch (e) { notify.error('Key not saved', e.message); }
-    refreshAiEngine();
-  };
-}
-
 // =====================================================================
 // Tabs
 // =====================================================================
@@ -871,6 +822,7 @@ function initKey() {
 const LEAD = {
   packs: 'Your graphics packs live here. Add one, switch it on or off, and tint the colours of your whole game.',
   ai: 'Describe the look you want and the AI builds a pack for you. Add a picture to make it your sky, or add a pack folder to build on.',
+  clouds: 'Change your cloud hats like a paint program: recolour every cloud at once, paint on them, or swap in your own picture. Then press Install.',
   editor: 'For tinkerers: open any timecycle file and change every colour and value by hand, with a live preview of the day.',
 };
 
@@ -884,6 +836,7 @@ function setPane(name) {
   $('#gfx-lead').textContent = LEAD[name];
   requestAnimationFrame(() => $$('.gfx-pane:not(.hidden) .seg').forEach(syncSeg));
   if (name === 'editor') enterEditor();
+  if (name === 'clouds') enterCloudLab();
   if (name === 'ai') { refreshAiEngine(); requestAnimationFrame(drawAi); }
   if (name === 'packs') ctx.refreshGraphics && ctx.refreshGraphics();
 }
@@ -894,7 +847,7 @@ export function initStudio(c) {
   $('#gfx-lead').textContent = LEAD[pane];
   initEditor();
   initAi();
-  initKey();
+  initCloudLab({ modal: ctx.modal });
   refreshAiEngine();
 }
 
@@ -902,6 +855,7 @@ export function initStudio(c) {
 export function refreshStudio() {
   requestAnimationFrame(() => syncSeg($('#gfx-tabs')));
   if (pane === 'editor') enterEditor();
+  if (pane === 'clouds') enterCloudLab();
   if (pane === 'ai') { refreshAiEngine(); drawAi(); }
 }
 
