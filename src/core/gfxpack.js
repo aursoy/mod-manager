@@ -32,7 +32,8 @@ function describePack(name, staged) {
     timecycles.push(s.rel);
     if (WEATHER_NAMES.test(base)) weather.push(s.rel);
   }
-  return { name, count: staged.length, bytes, timecycles, weather, skydome };
+  const rpfs = staged.filter((s) => /\.rpf$/i.test(s.rel)).length;
+  return { name, count: staged.length, bytes, timecycles, weather, skydome, rpfs };
 }
 
 /** The timecycle files the AI should edit: the weather files, or every timecycle when none are named w_*. */

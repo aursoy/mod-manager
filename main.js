@@ -10,7 +10,8 @@ const extras = require('./src/core/extras');
 const rpf = require('./src/core/rpf');
 const { AiKey, askClaude } = require('./src/core/ai');
 const { describePack, editableTimecycles, createPackWithTweaks } = require('./src/core/gfxpack');
-const { YtdFile, skydomeFromGame, findGtaDirs, DEFAULT_REL: SKY_REL } = require('./src/core/skytex');
+const { findGtaDirs } = require('./src/core/skytex');
+const { openSkySource, skySources } = require('./src/core/skysource');
 const { GtaKeys, findAesKey, findGtaExes } = require('./src/core/ngcrypto');
 
 app.setName('Kt Mod Manager');
@@ -220,56 +221,37 @@ app.whenReady().then(() => {
   });
   handle('gfx:clearPack', () => { gfxPack = null; sky = null; return true; });
   handle('gfx:packTimecycles', () => (gfxPack ? editableTimecycles(gfxPack.staged, gfxPack.info) : null));
-  handle('sky:status', () => ({
-    inPack: !!(gfxPack && gfxPack.info.skydome),
-    inCitizen: !!mgr.findInCitizen('skydome.ytd'),
-    gameDir: gtaDirs()[0] || null,
-    loaded: sky ? { label: sky.label, rel: sky.rel, textures: sky.ytd.describe(), skyIndex: sky.ytd.skyIndex(), applied: !!sky.out } : null,
-  }));
-  // source: 'pack' | 'citizen' | 'game' | 'pick'
-  handle('sky:open', async (source) => {
-    let stored; let rel; let label;
-    if (source === 'pack') {
-      if (!gfxPack || !gfxPack.info.skydome) throw new Error('The loaded pack has no skydome.ytd.');
-      const s = gfxPack.staged.find((x) => x.rel === gfxPack.info.skydome);
-      stored = s.data ? Buffer.from(s.data) : fs.readFileSync(s.from);
-      rel = s.rel; label = gfxPack.info.name + ' / skydome.ytd';
-    } else if (source === 'citizen') {
-      rel = mgr.findInCitizen('skydome.ytd');
-      if (!rel) throw new Error('No skydome.ytd in your citizen folder.');
-      stored = fs.readFileSync(path.join(mgr.requireCitizen(), ...rel.split('/')));
-      label = 'citizen / ' + rel;
-    } else if (source === 'game') {
+  const skyCtx = () => ({
+    pack: gfxPack, mgr, gtaDirs,
+    // An encrypted archive is unlocked once with the player's own GTA V (read-only, cached).
+    unlock: async () => {
       const dir = gtaDirs()[0];
-      if (!dir) throw new Error('GTA V was not found on this PC.');
-      let g;
-      try { g = skydomeFromGame(dir); } catch (e) {
-        // x64a.rpf is encrypted: unlock once with this GTA V (read-only, cached), then retry.
-        if (e.code !== rpf.NEED_KEYS) throw e;
-        const exe = ['GTA5.exe', 'GTA5_Enhanced.exe'].map((x) => path.join(dir, x)).find((x) => fs.existsSync(x));
-        if (!exe) throw e;
-        await unlockKeys(exe);
-        g = skydomeFromGame(dir);
-      }
-      stored = g.stored; rel = SKY_REL; label = 'your GTA V (' + g.path + ')';
-    } else {
-      const r = await dialog.showOpenDialog(win, { title: 'Choose skydome.ytd', properties: ['openFile'], filters: [{ name: 'Texture dictionary', extensions: ['ytd'] }] });
+      const exe = dir && ['GTA5.exe', 'GTA5_Enhanced.exe'].map((x) => path.join(dir, x)).find((x) => fs.existsSync(x));
+      if (!exe) throw new Error('This archive is encrypted and GTA V was not found to unlock it.');
+      await unlockKeys(exe);
+    },
+  });
+  handle('sky:status', () => ({ sources: skySources(skyCtx()), loaded: sky ? { label: sky.label, rel: sky.rel, applied: !!sky.out } : null }));
+  // source: 'pack' | 'pack-rpf' | 'mods' | 'citizen' | 'game' | 'pick'
+  handle('sky:open', async (source) => {
+    if (source === 'pick') {
+      const r = await dialog.showOpenDialog(win, { title: 'Choose your sky file', properties: ['openFile'], filters: [{ name: 'Sky (skydome.ytd or a sky .rpf)', extensions: ['ytd', 'rpf'] }] });
       if (r.canceled) return null;
-      stored = fs.readFileSync(r.filePaths[0]);
-      rel = SKY_REL; label = path.basename(r.filePaths[0]);
+      source = { file: r.filePaths[0] };
     }
-    const ytd = new YtdFile(stored, label);
-    sky = { ytd, rel, label, out: null };
-    return { label, rel, textures: ytd.describe(), skyIndex: ytd.skyIndex() };
+    const got = await openSkySource(source, skyCtx());
+    if (!got) throw new Error('No sky found there.');
+    sky = { obj: got.obj, rel: got.rel, label: got.label, out: null };
+    return { label: got.label, rel: got.rel, textures: got.obj.describe(), skyIndex: got.obj.skyIndex() };
   });
   handle('sky:apply', (index, data) => {
     if (!sky) throw new Error('Open a sky texture first.');
-    sky.out = sky.ytd.replace(index, Buffer.from(data));
+    sky.out = sky.obj.replace(index, Buffer.from(data));
     return { bytes: sky.out.length, rel: sky.rel };
   });
   handle('sky:export', async () => {
     if (!sky || !sky.out) throw new Error('Nothing to export yet.');
-    const r = await dialog.showSaveDialog(win, { title: 'Export sky texture', defaultPath: 'skydome.ytd', filters: [{ name: 'YTD', extensions: ['ytd'] }] });
+    const r = await dialog.showSaveDialog(win, { title: 'Export sky texture', defaultPath: path.basename(sky.rel), filters: [{ name: 'Sky file', extensions: [path.extname(sky.rel).slice(1)] }] });
     if (r.canceled) return null;
     fs.writeFileSync(r.filePath, sky.out);
     return r.filePath;

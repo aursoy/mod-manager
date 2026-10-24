@@ -51,6 +51,60 @@ class YtdFile {
   }
 }
 
+/** A sky inside an RPF, the way graphics packs ship it for FiveM.app/mods.
+ *  Finds skydome.ytd at any depth (RPFs inside RPFs too), and writes the whole
+ *  archive back with only that texture changed. */
+class RpfSky {
+  constructor(buf, label = 'pack.rpf') {
+    this.label = label;
+    this.root = rpf.readRpf(buf, label);
+    this.hit = findSkydome(this.root);
+    if (!this.hit) throw new Error(label + ' has no skydome.ytd inside.');
+    this.path = this.hit.path;
+    this.ytd = new YtdFile(this.hit.entry.stored, this.hit.entry.name);
+    this.textures = this.ytd.textures;
+  }
+
+  skyIndex() { return this.ytd.skyIndex(); }
+  describe(withData) { return this.ytd.describe(withData); }
+
+  replace(index, data) {
+    this.hit.entry.stored = this.ytd.replace(index, data);
+    rebuildNested(this.root);
+    return rpf.writeRpf(this.root);
+  }
+}
+
+function findSkydome(root, prefix = '') {
+  let hit = null;
+  rpf.walk(root, (e, p) => {
+    if (hit) return;
+    const full = prefix ? prefix + '/' + p : p;
+    const lower = e.name.toLowerCase();
+    if (e.type === 'res' && lower === 'skydome.ytd') { hit = { entry: e, path: full }; return; }
+    if (e.type === 'bin' && lower.endsWith('.rpf')) {
+      try {
+        e.nested = e.nested || rpf.readRpf(rpf.getBinaryData(e), e.name);
+        hit = findSkydome(e.nested, full);
+      } catch (err) { if (err.code === rpf.NEED_KEYS) throw err; /* unreadable inner archive */ }
+    }
+  });
+  return hit;
+}
+
+function rebuildNested(root) {
+  rpf.walk(root, (e) => {
+    if (!e.nested) return;
+    rebuildNested(e.nested);
+    rpf.setBinaryData(e, rpf.writeRpf(e.nested), false);
+  });
+}
+
+/** Does this RPF have a sky in it? Cheap check that stops at the first hit. */
+function rpfHasSky(buf, label) {
+  try { return !!findSkydome(rpf.readRpf(buf, label)); } catch (e) { if (e.code === rpf.NEED_KEYS) throw e; return false; }
+}
+
 /** Pull skydome.ytd out of the game's x64a.rpf (the stock sky). Needs the keys
  *  for encrypted archives, like every other RPF read in this app. */
 function skydomeFromGame(gtaDir) {
@@ -84,4 +138,4 @@ function findGtaDirs({ citizenPath = null, knownExe = null, exes = [] } = {}) {
   return out;
 }
 
-module.exports = { YtdFile, skydomeFromGame, findGtaDirs, DEFAULT_REL };
+module.exports = { YtdFile, RpfSky, rpfHasSky, skydomeFromGame, findGtaDirs, DEFAULT_REL };
