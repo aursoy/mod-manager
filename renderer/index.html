@@ -209,57 +209,62 @@
 
         <!-- Advanced editor -->
         <div class="gfx-pane hidden" data-pane="editor">
-          <div class="tce">
-            <div class="card tce-main">
-              <div class="tce-top">
-                <select id="tce-file" class="tc-select" title="Timecycle file"></select>
-                <select id="tce-section" class="tc-select" title="Weather"></select>
-                <button class="btn ghost sm" id="tce-open"><i data-icon="folder"></i>Open file</button>
+          <div class="card ted-bar">
+            <label class="ted-field grow"><span>File</span><select id="tce-file" class="tc-select"></select></label>
+            <label class="ted-field"><span>Weather</span><select id="tce-cycle" class="tc-select"></select></label>
+            <div class="ted-field" id="tce-area-wrap"><span>Area</span><div class="seg" id="tce-area"></div></div>
+            <button class="btn ghost sm" id="tce-open"><i data-icon="folder"></i>Open other file</button>
+            <div class="ted-save">
+              <span class="tag" id="tce-dirty">No changes</span>
+              <small class="ted-save-hint" id="tce-save-hint">Nothing is written to your game until you press Save to game.</small>
+              <button class="btn ghost sm" id="tce-revert"><i data-icon="undo"></i>Undo all</button>
+              <button class="btn ghost sm" id="tce-weather" title="FiveM only reads w_*.xml weather files. This copies the file over the sunny and clear weather."><i data-icon="sun"></i>Use for sunny weather</button>
+              <button class="btn ghost sm" id="tce-export"><i data-icon="download"></i>Export</button>
+              <button class="btn ghost sm" id="tce-pack"><i data-icon="package"></i>Save as pack</button>
+              <button class="btn primary sm" id="tce-save"><i data-icon="save"></i>Save to game</button>
+            </div>
+          </div>
+
+          <div class="ted">
+            <div class="ted-left">
+              <div class="card ted-preview">
+                <div class="tce-view">
+                  <canvas id="tce-canvas"></canvas>
+                  <span class="tce-tag" id="tce-tag">12:00</span>
+                  <div class="tce-empty hidden" id="tce-empty"><i data-icon="file"></i><b>No timecycle open</b><small>Pick a file above, or open a timecycle .xml from your computer.</small></div>
+                </div>
+                <div class="ted-scrub">
+                  <button class="icon-btn" id="tce-play" title="Play a whole day"><i data-icon="play"></i></button>
+                  <div class="ted-track"><input type="range" id="tce-hour" min="0" max="24" step="0.05" value="12" /><div class="ted-ticks" id="tce-ticks"></div></div>
+                  <b class="mono" id="tce-hour-label">12:00</b>
+                </div>
               </div>
-              <div class="tce-view">
-                <canvas id="tce-canvas"></canvas>
-                <span class="tce-tag" id="tce-tag">12:00</span>
-                <div class="tce-empty hidden" id="tce-empty"><i data-icon="file"></i><b>No timecycle open</b><small>Pick one above, or open any timecycle .xml from your computer.</small></div>
-              </div>
-              <div class="tce-time">
-                <button class="icon-btn" id="tce-play" title="Play a day"><i data-icon="play"></i></button>
-                <input type="range" id="tce-hour" min="0" max="24" step="0.05" value="12" />
-                <b class="mono" id="tce-hour-label">12:00</b>
-              </div>
-              <div class="tce-keys" id="tce-keys"></div>
-              <div class="tce-quick">
-                <p class="label">Quick colour change for this weather</p>
+
+              <div class="card ted-quick">
+                <div class="card-title"><h3>Quick colour change</h3><small>Tints every colour of this weather and area at once. Undo all puts it back.</small></div>
                 <div class="ctrl-row tight">
                   <label class="field colour-field"><span>Tint</span><input type="color" id="tce-tint" value="#ffa060" /></label>
                   <div class="slider-field"><span>Strength <b id="tce-tint-val">0%</b></span><input type="range" id="tce-tint-amt" min="0" max="100" value="0" /></div>
                 </div>
-                <div class="ctrl-row tight">
+                <div class="ctrl-row tight two">
                   <div class="slider-field"><span>Brightness <b id="tce-bright-val">0</b></span><input type="range" id="tce-bright" min="-100" max="100" value="0" /></div>
                   <div class="slider-field"><span>Saturation <b id="tce-sat-val">100%</b></span><input type="range" id="tce-sat" min="0" max="200" value="100" /></div>
                 </div>
                 <div class="row-end tight"><button class="btn ghost sm" id="tce-quick-apply"><i data-icon="check"></i>Apply</button></div>
               </div>
-              <div class="tce-actions">
-                <span class="tag" id="tce-dirty">Unchanged</span>
-                <div class="grow"></div>
-                <button class="btn ghost sm" id="tce-revert" title="Undo every change since you opened the file"><i data-icon="undo"></i>Undo all</button>
-                <button class="btn ghost sm" id="tce-weather" title="FiveM only uses w_*.xml files. This copies the file over the sunny and clear weather."><i data-icon="sun"></i>Use for sunny weather</button>
-                <button class="btn ghost sm" id="tce-export"><i data-icon="download"></i>Export</button>
-                <button class="btn ghost sm" id="tce-pack"><i data-icon="package"></i>Save as pack</button>
-                <button class="btn primary sm" id="tce-save"><i data-icon="save"></i>Save to game</button>
-              </div>
             </div>
 
-            <div class="card tce-params">
-              <div class="tce-params-head">
-                <label class="search"><i data-icon="search"></i><input type="text" id="tce-search" placeholder="Search, e.g. zenith, fog, star" /></label>
-                <div class="seg tce-mode" id="tce-mode" title="Change only the selected time, or shift the whole day"><button data-v="key" class="on">This time</button><button data-v="all">Whole day</button><i class="seg-thumb"></i></div>
+            <div class="card ted-settings">
+              <div class="ted-settings-head">
+                <h3>Settings</h3>
+                <label class="search"><i data-icon="search"></i><input type="text" id="tce-search" placeholder="Search, e.g. sky, moon, fog" /></label>
               </div>
               <div class="chips" id="tce-groups"></div>
-              <p class="fine" id="tce-note"></p>
-              <ul class="tce-list" id="tce-list"></ul>
+              <p class="fine" id="tce-note">Click a setting to change it. Every box is one time of day; you only change the box you pick.</p>
+              <ul class="ted-list" id="tce-list"></ul>
             </div>
           </div>
+
         </div>
       </section>
 

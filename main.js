@@ -10,7 +10,7 @@ const extras = require('./src/core/extras');
 const rpf = require('./src/core/rpf');
 const { AiKey, askClaude } = require('./src/core/ai');
 const { describePack, editableTimecycles, createPackWithTweaks } = require('./src/core/gfxpack');
-const { YtdFile, skydomeFromGame, DEFAULT_REL: SKY_REL } = require('./src/core/skytex');
+const { YtdFile, skydomeFromGame, findGtaDirs, DEFAULT_REL: SKY_REL } = require('./src/core/skytex');
 const { GtaKeys, findAesKey, findGtaExes } = require('./src/core/ngcrypto');
 
 app.setName('Kt Mod Manager');
@@ -137,7 +137,7 @@ app.whenReady().then(() => {
     const r = await dialog.showOpenDialog(win, { title: 'Select GTA5.exe', properties: ['openFile'], filters: [{ name: 'GTA V', extensions: ['exe'] }] });
     return r.canceled ? null : r.filePaths[0];
   });
-  handle('keys:unlock', async (exe) => {
+  const unlockKeys = async (exe) => {
     const aes = await findAesKey(exe, (p) => win.webContents.send('keys:progress', p));
     rpf.setKeys(new GtaKeys(aes));
     fs.mkdirSync(path.dirname(keyFile), { recursive: true });
@@ -145,7 +145,9 @@ app.whenReady().then(() => {
     mgr.log('success', 'Unlocked encrypted RPFs using ' + path.basename(exe));
     mgr.save();
     return true;
-  });
+  };
+  const cachedExe = () => { try { return JSON.parse(fs.readFileSync(keyFile, 'utf8')).exe || null; } catch (e) { return null; } };
+  handle('keys:unlock', (exe) => unlockKeys(exe));
 
   handle('win:minimize', () => win.minimize());
   handle('win:maximize', () => (win.isMaximized() ? win.unmaximize() : win.maximize()));
@@ -208,6 +210,7 @@ app.whenReady().then(() => {
     return r.filePath;
   });
   // ----- Pack AI: a dropped pack to build on, and the sky texture -----
+  const gtaDirs = () => findGtaDirs({ citizenPath: mgr.state.citizenPath, knownExe: cachedExe(), exes: findGtaExes() });
   handle('gfx:loadPack', (sources) => {
     const staged = mgr.stageSources(sources);
     const name = path.basename(sources[0]).replace(/\.zip$/i, '');
@@ -220,7 +223,7 @@ app.whenReady().then(() => {
   handle('sky:status', () => ({
     inPack: !!(gfxPack && gfxPack.info.skydome),
     inCitizen: !!mgr.findInCitizen('skydome.ytd'),
-    gameExe: findGtaExes()[0] || null,
+    gameDir: gtaDirs()[0] || null,
     loaded: sky ? { label: sky.label, rel: sky.rel, textures: sky.ytd.describe(), skyIndex: sky.ytd.skyIndex(), applied: !!sky.out } : null,
   }));
   // source: 'pack' | 'citizen' | 'game' | 'pick'
@@ -237,10 +240,18 @@ app.whenReady().then(() => {
       stored = fs.readFileSync(path.join(mgr.requireCitizen(), ...rel.split('/')));
       label = 'citizen / ' + rel;
     } else if (source === 'game') {
-      const exe = findGtaExes()[0];
-      if (!exe) throw new Error('GTA V was not found. Pick skydome.ytd yourself instead.');
-      const g = skydomeFromGame(path.dirname(exe));
-      stored = g.stored; rel = SKY_REL; label = 'GTA V / ' + g.path;
+      const dir = gtaDirs()[0];
+      if (!dir) throw new Error('GTA V was not found on this PC.');
+      let g;
+      try { g = skydomeFromGame(dir); } catch (e) {
+        // x64a.rpf is encrypted: unlock once with this GTA V (read-only, cached), then retry.
+        if (e.code !== rpf.NEED_KEYS) throw e;
+        const exe = ['GTA5.exe', 'GTA5_Enhanced.exe'].map((x) => path.join(dir, x)).find((x) => fs.existsSync(x));
+        if (!exe) throw e;
+        await unlockKeys(exe);
+        g = skydomeFromGame(dir);
+      }
+      stored = g.stored; rel = SKY_REL; label = 'your GTA V (' + g.path + ')';
     } else {
       const r = await dialog.showOpenDialog(win, { title: 'Choose skydome.ytd', properties: ['openFile'], filters: [{ name: 'Texture dictionary', extensions: ['ytd'] }] });
       if (r.canceled) return null;

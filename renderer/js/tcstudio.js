@@ -8,7 +8,7 @@ import * as TC from './timecycle.js';
 import * as AI from './gfxai.js';
 import { drawScene } from './tcpreview.js';
 import { encode as encodeTex } from './dxt.js';
-import { ensureKeys, needsKeys } from './keys.js';
+import { cleanError } from './keys.js';
 
 const api = window.api;
 const $ = (s, r = document) => r.querySelector(s);
@@ -24,15 +24,15 @@ let pane = 'packs';
 // =====================================================================
 
 const ed = {
-  rel: null, name: '', model: null, sectionId: null, hour: 12, mode: 'key', group: 'all', query: '',
-  items: [], rows: [], playing: null, drawQueued: false, external: null,
+  rel: null, name: '', model: null, sectionId: null, hour: 12, group: 'all', query: '', open: null,
+  items: [], playing: null, drawQueued: false, external: null, aiDraft: null,
 };
 const GRADE_GROUPS = ['sky', 'sun', 'cloud', 'light', 'ambient', 'fog'];
 
 const section = () => ed.model && ed.model.sections.find((s) => s.id === ed.sectionId);
-const keyOf = (n) => TC.nearestKey(n, ed.hour);
+const usable = () => (ed.model ? ed.model.sections.filter((s) => s.params.length) : []);
 const hexOf = (rgb) => TC.rgbToHex(rgb);
-const stepFor = (v) => (Math.abs(v) >= 100 ? 1 : Math.abs(v) >= 10 ? 0.1 : 0.01);
+const nice = (w) => TC.WEATHER_NAMES[w.toUpperCase()] || w.charAt(0) + w.slice(1).toLowerCase();
 
 function queueDraw() {
   if (ed.drawQueued) return;
@@ -45,11 +45,15 @@ function queueDraw() {
 }
 
 function setDirtyTag() {
-  const n = ed.model ? TC.dirtyCount(ed.model) : 0;
+  // a colour counts once, not once per r/g/b
+  const n = ed.model ? ed.model.sections.reduce((sum, sec) => sum
+    + sec.colours.filter((c) => [c.r, c.g, c.b].some((p) => p.values.some((v, i) => v !== p.orig[i]))).length
+    + sec.scalars.filter((p) => p.values.some((v, i) => v !== p.orig[i])).length, 0) : 0;
   const tag = $('#tce-dirty');
-  tag.textContent = n ? n + ' value' + (n === 1 ? '' : 's') + ' edited' : 'Unchanged';
+  tag.textContent = n ? n + ' setting' + (n === 1 ? '' : 's') + ' changed' : 'No changes';
   tag.classList.toggle('solid', n > 0);
-  for (const id of ['tce-revert', 'tce-export', 'tce-pack', 'tce-save']) $('#' + id).disabled = !ed.model;
+  $('#tce-save-hint').textContent = n ? 'Not saved yet. Press Save to game to use it, or Save as pack to keep it as a pack.' : 'Nothing is written to your game until you press Save to game.';
+  for (const id of ['tce-export', 'tce-pack', 'tce-save']) $('#' + id).disabled = !ed.model;
   $('#tce-revert').disabled = !n;
   // FiveM only reads w_*.xml weather files; offer to hook up anything else.
   const citizenFile = ed.model && ed.rel && !ed.rel.startsWith('__');
@@ -61,10 +65,10 @@ async function populateFiles(selectRel) {
   try { items = (await api.call('colour:scan')).items || []; } catch (e) { /* citizen not linked */ }
   ed.items = items;
   const sel = $('#tce-file');
-  let html = items.length ? '' : '<option value="">No timecycle files found</option>';
-  html += items.map((it) => `<option value="${esc(it.rel)}">${esc(it.name)}${it.cycles.length ? ' [' + esc(it.cycles[0]) + ']' : ''}</option>`).join('');
-  if (ed.external) html += `<option value="__ext__">${esc(ed.external.name)} (opened file)</option>`;
-  if (ed.aiDraft) html += `<option value="__ai__">${esc(ed.aiDraft.name)} (AI version)</option>`;
+  let html = items.length ? '' : '<option value="">No timecycle files in your game yet</option>';
+  html += items.map((it) => `<option value="${esc(it.rel)}">${esc(it.name)}</option>`).join('');
+  if (ed.external) html += `<option value="__ext__">${esc(ed.external.name)} (from your computer)</option>`;
+  if (ed.aiDraft) html += `<option value="__ai__">${esc(ed.aiDraft.name)} (AI version, not saved)</option>`;
   sel.innerHTML = html;
   const want = selectRel || ed.rel;
   if (want && [...sel.options].some((o) => o.value === want)) sel.value = want;
@@ -73,7 +77,7 @@ async function populateFiles(selectRel) {
 
 async function openRel(rel, { force = false } = {}) {
   if (!force && ed.model && TC.isDirty(ed.model)) {
-    const ok = await ctx.modal({ title: 'Discard your edits?', text: 'You have unsaved changes in ' + ed.name + '.', confirm: 'Discard', danger: true });
+    const ok = await ctx.modal({ title: 'Throw away your changes?', text: 'You changed ' + ed.name + ' but did not save it.', confirm: 'Throw away', danger: true });
     if (!ok) { $('#tce-file').value = ed.rel || ''; return; }
   }
   try {
@@ -89,159 +93,167 @@ async function openRel(rel, { force = false } = {}) {
       ed.model = TC.parse(xml);
     }
   } catch (e) { notify.error('Could not open timecycle', e.message); return; }
-  if (!ed.model.params.length) notify.warning('Nothing to edit', ed.name + ' has no numeric timecycle values.');
-  const secs = ed.model.sections.filter((s) => s.params.length);
-  ed.sectionId = (secs.find((s) => /extrasunny|clear/i.test(s.label)) || secs[0] || {}).id || null;
-  ed.group = 'all'; ed.query = ''; $('#tce-search').value = '';
+  if (!ed.model.params.length) notify.warning('Nothing to edit', ed.name + ' has no timecycle values in it.');
+  pickDefaultSection();
+  ed.group = 'all'; ed.query = ''; ed.open = null; $('#tce-search').value = '';
   paintEditor();
+}
+
+function pickDefaultSection() {
+  const secs = usable();
+  const s = secs.find((x) => /extrasunny|clear/i.test(x.label) && /global/i.test(x.label)) || secs.find((x) => /extrasunny|clear/i.test(x.label)) || secs[0];
+  ed.sectionId = s ? s.id : null;
 }
 
 function paintEditor() {
   const has = !!(ed.model && section());
   $('#tce-empty').classList.toggle('hidden', has);
   $('#tce-canvas').classList.toggle('hidden', !has);
-  const secSel = $('#tce-section');
-  if (ed.model) {
-    secSel.innerHTML = ed.model.sections.filter((s) => s.params.length).map((s) => `<option value="${esc(s.id)}">${esc(s.label)} (${s.colours.length} colours)</option>`).join('');
-    if (ed.sectionId) secSel.value = ed.sectionId;
-  } else secSel.innerHTML = '';
-  secSel.style.display = ed.model && ed.model.sections.filter((s) => s.params.length).length > 1 ? '' : 'none';
+  // weather + area pickers
+  const secs = usable();
+  const weathers = [...new Set(secs.map((x) => TC.splitSection(x.label).weather))];
+  const cur = section() ? TC.splitSection(section().label) : { weather: null, area: null };
+  $('#tce-cycle').innerHTML = weathers.map((w) => `<option value="${esc(w)}">${esc(nice(w))}</option>`).join('');
+  if (cur.weather) $('#tce-cycle').value = cur.weather;
+  $('#tce-cycle').disabled = weathers.length < 2;
+  const areas = secs.filter((x) => TC.splitSection(x.label).weather === cur.weather);
+  $('#tce-area-wrap').classList.toggle('hidden', areas.length < 2);
+  $('#tce-area').innerHTML = areas.map((x) => {
+    const a = TC.splitSection(x.label).area || 'All';
+    return `<button data-id="${esc(x.id)}" class="${x.id === ed.sectionId ? 'on' : ''}">${esc(TC.AREA_NAMES[a.toUpperCase()] || a)}</button>`;
+  }).join('') + '<i class="seg-thumb"></i>';
+  $$('#tce-area button').forEach((b) => (b.onclick = () => { ed.sectionId = b.dataset.id; ed.open = null; paintEditor(); }));
+  requestAnimationFrame(() => syncSeg($('#tce-area')));
   renderGroups();
-  renderParams();
-  renderKeys();
+  renderTicks();
+  renderSettings();
   setDirtyTag();
   queueDraw();
 }
 
 function renderGroups() {
   const sec = section();
-  const counts = {};
-  if (sec) for (const p of sec.params) counts[p.group] = (counts[p.group] || 0) + 1;
-  const total = sec ? sec.colours.length + sec.scalars.length : 0;
-  const chips = [['all', 'All', total]].concat(TC.GROUPS.filter((g) => counts[g.id]).map((g) => {
-    const n = sec.colours.filter((c) => c.group === g.id).length + sec.scalars.filter((p) => p.group === g.id).length;
-    return [g.id, g.label, n];
-  })).filter((c) => c[2] > 0);
+  if (!sec) { $('#tce-groups').innerHTML = ''; return; }
+  const count = (g) => sec.colours.filter((c) => g === 'all' || c.group === g).length + sec.scalars.filter((p) => g === 'all' || p.group === g).length;
+  const chips = [['all', 'All']].concat(TC.GROUPS.map((g) => [g.id, g.label])).map(([id, label]) => [id, label, count(id)]).filter((c) => c[2] > 0);
   $('#tce-groups').innerHTML = chips.map(([id, label, n]) => `<button class="chip ${ed.group === id ? 'on' : ''}" data-g="${id}">${esc(label)} <small>${n}</small></button>`).join('');
-  $$('#tce-groups .chip').forEach((c) => (c.onclick = () => { ed.group = c.dataset.g; renderGroups(); renderParams(); }));
+  $$('#tce-groups .chip').forEach((c) => (c.onclick = () => { ed.group = c.dataset.g; renderGroups(); renderSettings(); }));
 }
 
-function dominantKeyCount() {
+function keyCount() {
   const sec = section();
-  if (!sec) return 9;
+  if (!sec || !sec.params.length) return 0;
   const tally = {};
   for (const p of sec.params) tally[p.values.length] = (tally[p.values.length] || 0) + 1;
   return +Object.entries(tally).sort((a, b) => b[1] - a[1])[0][0];
 }
 
-function renderKeys() {
-  const n = dominantKeyCount();
-  const hrs = TC.keyHours(n);
-  const box = $('#tce-keys');
-  if (!section() || n < 2) { box.innerHTML = ''; return; }
-  box.innerHTML = hrs.map((h, i) => `<button data-h="${h}" class="${i === TC.nearestKey(n, ed.hour) ? 'on' : ''}">${TC.hourLabel(h)}</button>`).join('');
-  $$('button', box).forEach((b) => (b.onclick = () => setHour(+b.dataset.h)));
+function renderTicks() {
+  const n = keyCount();
+  const box = $('#tce-ticks');
+  if (n < 2) { box.innerHTML = ''; return; }
+  const near = TC.nearestKey(n, ed.hour);
+  box.innerHTML = TC.keyHours(n).map((h, i) => `<button data-h="${h}" style="left:${(h / 24) * 100}%" class="${i === near ? 'on' : ''}" title="Jump to ${TC.hourLabel(h)}"></button>`).join('');
+  $$('button', box).forEach((b) => (b.onclick = () => { stopPlay(); setHour(+b.dataset.h); }));
 }
 
-function renderParams() {
+// Settings are keyed by position ("c3" = 4th colour), never by name, so two
+// settings that share a tag name can never edit each other.
+function entries() {
   const sec = section();
+  if (!sec) return [];
+  const q = ed.query.trim().toLowerCase();
+  const ok = (name, group) => (ed.group === 'all' || ed.group === group) && (!q || name.toLowerCase().includes(q) || TC.labelOf(name).toLowerCase().includes(q));
+  return [
+    ...sec.colours.map((c, i) => ({ key: 'c' + i, col: c, name: c.name, group: c.group })),
+    ...sec.scalars.map((p, i) => ({ key: 's' + i, par: p, name: p.name, group: p.group })),
+  ].filter((e) => ok(e.name, e.group));
+}
+
+const isDirtyEntry = (e) => (e.col ? [e.col.r, e.col.g, e.col.b] : [e.par]).some((p) => p.values.some((v, i) => v !== p.orig[i]));
+
+function headHtml(e) {
+  const n = e.col ? e.col.r.values.length : e.par.values.length;
+  const k = TC.nearestKey(n, ed.hour);
+  const lead = e.col ? `<span class="set-sw" style="background:${hexOf(TC.colourAt(e.col, k))}"></span>` : `<span class="set-num">${esc(TC.fmt(e.par.values[k]))}</span>`;
+  return `${lead}<span class="set-txt"><b>${esc(TC.labelOf(e.name))}</b><small>${esc(e.name)}</small></span>${icon('chevron-right')}`;
+}
+
+function bodyHtml(e) {
+  const n = e.col ? e.col.r.values.length : e.par.values.length;
+  const hrs = TC.keyHours(n);
+  const k = TC.nearestKey(n, ed.hour);
+  const boxes = hrs.map((h, i) => `<label class="tm ${i === k ? 'on' : ''}" data-i="${i}">
+      ${e.col ? `<input type="color" value="${hexOf(TC.colourAt(e.col, i))}" />` : `<input type="number" step="any" value="${esc(TC.fmt(e.par.values[i]))}" />`}
+      <small>${n === 1 ? 'All day' : TC.hourLabel(h)}</small></label>`).join('');
+  const what = e.col ? 'colour' : 'value';
+  return `<div class="set-body">
+    <div class="set-times">${boxes}</div>
+    <div class="set-actions">
+      ${n > 1 ? `<button class="btn ghost sm" data-act="all">${icon('copy')}Use the ${TC.hourLabel(hrs[k])} ${what} all day</button>` : ''}
+      <button class="btn ghost sm" data-act="reset" ${isDirtyEntry(e) ? '' : 'disabled'}>${icon('undo')}Undo this</button>
+    </div></div>`;
+}
+
+function renderSettings() {
   const list = $('#tce-list');
-  ed.rows = [];
-  if (!sec) { list.innerHTML = ''; $('#tce-note').textContent = ''; return; }
-  const q = ed.ui_query = ed.query.trim().toLowerCase();
-  const match = (name, group) => (ed.group === 'all' || ed.group === group) && (!q || name.toLowerCase().includes(q));
-  const cols = sec.colours.filter((c) => match(c.name, c.group));
-  const scal = sec.scalars.filter((p) => match(p.name, p.group));
-  const frag = [];
-  for (const c of cols) {
-    frag.push(`<li class="pr col" data-kind="c" data-name="${esc(c.name)}"><div class="pr-name" title="${esc(c.name)}">${esc(c.name.replace(/_col$/, ''))}</div>
-      <div class="kcells">${c.r.values.map((_, i) => `<button class="kc" data-k="${i}" title="${TC.hourLabel(TC.keyHours(c.r.values.length)[i])}"></button>`).join('')}</div>
-      <input type="color" class="cin" /></li>`);
-  }
-  for (const p of scal) {
-    frag.push(`<li class="pr sc" data-kind="s" data-name="${esc(p.name)}"><div class="pr-name" title="${esc(p.name)}">${esc(p.name)}</div>
-      <div class="kbars">${p.values.map((_, i) => `<button class="kb" data-k="${i}"><i></i></button>`).join('')}</div>
-      <input type="number" class="nin" step="any" /></li>`);
-  }
-  list.innerHTML = frag.length ? frag.join('') : '<li class="empty">Nothing matches.</li>';
-  $('#tce-note').textContent = `${cols.length} colour${cols.length === 1 ? '' : 's'} · ${scal.length} value${scal.length === 1 ? '' : 's'}`;
-
-  $$('li.pr', list).forEach((li) => {
-    const col = li.dataset.kind === 'c' ? cols.find((c) => c.name === li.dataset.name) : null;
-    const par = li.dataset.kind === 's' ? scal.find((p) => p.name === li.dataset.name) : null;
-    const row = { li, col, par };
-    ed.rows.push(row);
-    $$('.kc, .kb', li).forEach((b) => (b.onclick = () => {
-      const n = (col || par).r ? col.r.values.length : par.values.length;
-      setHour(TC.keyHours(n)[+b.dataset.k]);
-    }));
-    if (col) {
-      $('.cin', li).addEventListener('input', (e) => { editColour(col, TC.hexToRgb(e.target.value)); syncRow(row); afterEdit(); });
-    } else {
-      $('.nin', li).addEventListener('input', (e) => {
-        const v = parseFloat(e.target.value);
-        if (!Number.isFinite(v)) return;
-        editScalar(par, v); syncRow(row); afterEdit();
-      });
-    }
-    syncRow(row);
-  });
+  const items = entries();
+  if (!section()) { list.innerHTML = ''; return; }
+  list.innerHTML = items.length
+    ? items.map((e) => `<li class="set ${ed.open === e.key ? 'open' : ''} ${isDirtyEntry(e) ? 'dirty' : ''}" data-key="${e.key}"><button class="set-head">${headHtml(e)}</button>${ed.open === e.key ? bodyHtml(e) : ''}</li>`).join('')
+    : '<li class="empty">No settings match.</li>';
+  for (const li of $$('li.set', list)) bindSetting(li, items.find((e) => e.key === li.dataset.key));
 }
 
-function syncRow(row) {
-  if (row.col) {
-    const c = row.col;
-    const k = keyOf(c.r.values.length);
-    $$('.kc', row.li).forEach((b, i) => {
-      b.style.background = hexOf(TC.colourAt(c, i));
-      b.classList.toggle('on', i === k);
+function refreshSetting(e) {
+  const li = $(`#tce-list li[data-key="${e.key}"]`);
+  if (!li) return;
+  $('.set-head', li).innerHTML = headHtml(e);
+  li.classList.toggle('dirty', isDirtyEntry(e));
+  const reset = $('[data-act=reset]', li);
+  if (reset) reset.disabled = !isDirtyEntry(e);
+}
+
+function bindSetting(li, e) {
+  $('.set-head', li).onclick = () => { ed.open = ed.open === e.key ? null : e.key; renderSettings(); };
+  if (ed.open !== e.key) return;
+  const n = e.col ? e.col.r.values.length : e.par.values.length;
+  $$('.tm', li).forEach((box) => {
+    const i = +box.dataset.i;
+    const input = $('input', box);
+    // Picking a box jumps the preview to that time.
+    box.addEventListener('pointerdown', () => { if (n > 1) { stopPlay(); setHour(TC.keyHours(n)[i], { keepOpen: true }); } });
+    input.addEventListener('input', () => {
+      if (e.col) TC.setColour(e.col, i, TC.hexToRgb(input.value));
+      else { const v = parseFloat(input.value); if (!Number.isFinite(v)) return; e.par.values[i] = v; }
+      refreshSetting(e); setDirtyTag(); queueDraw();
     });
-    $('.cin', row.li).value = hexOf(TC.colourAt(c, k));
-    row.li.classList.toggle('dirty', [c.r, c.g, c.b].some((p) => p.values.some((v, i) => v !== p.orig[i])));
-  } else {
-    const p = row.par;
-    const k = keyOf(p.values.length);
-    const min = Math.min(...p.values); const max = Math.max(...p.values);
-    $$('.kb', row.li).forEach((b, i) => {
-      b.classList.toggle('on', i === k);
-      $('i', b).style.height = (max === min ? 55 : 14 + ((p.values[i] - min) / (max - min)) * 86) + '%';
-    });
-    const inp = $('.nin', row.li);
-    if (document.activeElement !== inp) inp.value = TC.fmt(p.values[k]);
-    row.li.classList.toggle('dirty', p.values.some((v, i) => v !== p.orig[i]));
-  }
-}
-
-function syncAllRows() { ed.rows.forEach(syncRow); }
-
-function editColour(col, rgb) {
-  const n = col.r.values.length;
-  const k = keyOf(n);
-  if (ed.mode === 'key') { TC.setColour(col, k, rgb); return; }
-  // "All day": move the whole curve so the current time matches, keeping its shape.
-  const cur = TC.colourAt(col, k);
-  [col.r, col.g, col.b].forEach((p, ch) => {
-    const f = cur[ch] > 1e-4 ? rgb[ch] / cur[ch] : null;
-    p.values = p.values.map((v) => Math.max(0, f != null ? v * f : v + (rgb[ch] - cur[ch])));
   });
+  const all = $('[data-act=all]', li);
+  if (all) all.onclick = () => {
+    const k = TC.nearestKey(n, ed.hour);
+    if (e.col) TC.setColourAll(e.col, TC.colourAt(e.col, k));
+    else e.par.values = e.par.values.map(() => e.par.values[k]);
+    renderSettings(); setDirtyTag(); queueDraw();
+  };
+  $('[data-act=reset]', li).onclick = () => {
+    for (const p of e.col ? [e.col.r, e.col.g, e.col.b] : [e.par]) p.values = p.orig.slice();
+    renderSettings(); setDirtyTag(); queueDraw();
+  };
 }
 
-function editScalar(p, v) {
-  const k = keyOf(p.values.length);
-  if (ed.mode === 'key') { p.values[k] = v; return; }
-  const cur = p.values[k];
-  p.values = p.values.map((x) => (Math.abs(cur) > 1e-6 ? x * (v / cur) : v));
-}
-
-function afterEdit() { setDirtyTag(); queueDraw(); if (ed.mode === 'all') syncAllRows(); }
-
-function setHour(h) {
+function setHour(h, { keepOpen = false } = {}) {
   ed.hour = ((h % 24) + 24) % 24;
   $('#tce-hour').value = ed.hour; fillRange($('#tce-hour'));
   $('#tce-hour-label').textContent = TC.hourLabel(ed.hour);
   $('#tce-tag').textContent = TC.hourLabel(ed.hour);
-  renderKeys();
-  syncAllRows();
+  renderTicks();
+  if (keepOpen) {
+    // only move the highlight; re-rendering would close the colour picker
+    for (const e of entries()) refreshSetting(e);
+    const n = keyCount();
+    $$('#tce-list .set.open .tm').forEach((b) => b.classList.toggle('on', +b.dataset.i === TC.nearestKey(n, ed.hour)));
+  } else renderSettings();
   queueDraw();
 }
 
@@ -255,13 +267,14 @@ function togglePlay() {
   $('#tce-play').innerHTML = icon('pause');
   const t0 = performance.now();
   const from = ed.hour;
+  let last = 0;
   const tick = (now) => {
     if (!ed.playing) return;
     ed.hour = (from + ((now - t0) / 1000) * 2) % 24;
     $('#tce-hour').value = ed.hour; fillRange($('#tce-hour'));
     $('#tce-hour-label').textContent = TC.hourLabel(ed.hour);
     $('#tce-tag').textContent = TC.hourLabel(ed.hour);
-    syncAllRows();
+    if (now - last > 250) { last = now; renderTicks(); for (const e of entries()) refreshSetting(e); }
     drawScene($('#tce-canvas'), section(), ed.hour);
     ed.playing.raf = requestAnimationFrame(tick);
   };
@@ -336,8 +349,8 @@ function quickApply() {
   for (const id of ['tce-tint-amt', 'tce-bright']) $('#' + id).value = 0;
   $('#tce-sat').value = 100;
   paintQuick();
-  syncAllRows(); setDirtyTag(); queueDraw();
-  notify.info('Colours changed', n + ' colours changed in ' + sec.label + '. Undo all puts them back.');
+  renderSettings(); setDirtyTag(); queueDraw();
+  notify.info('Colours changed', n + ' colours changed. Undo all puts them back.');
 }
 
 function paintQuick() {
@@ -349,19 +362,23 @@ function paintQuick() {
 
 function initEditor() {
   $('#tce-file').onchange = (e) => openRel(e.target.value);
-  $('#tce-section').onchange = (e) => { ed.sectionId = e.target.value; ed.group = 'all'; paintEditor(); };
+  $('#tce-cycle').onchange = (e) => {
+    const area = section() ? TC.splitSection(section().label).area : null;
+    const same = usable().filter((x) => TC.splitSection(x.label).weather === e.target.value);
+    ed.sectionId = (same.find((x) => TC.splitSection(x.label).area === area) || same[0] || {}).id || null;
+    ed.open = null;
+    paintEditor();
+  };
   $('#tce-open').onclick = () => openExternal();
   $('#tce-hour').addEventListener('input', (e) => { stopPlay(); setHour(+e.target.value); });
   $('#tce-play').onclick = togglePlay;
-  $('#tce-search').addEventListener('input', (e) => { ed.query = e.target.value; renderParams(); });
-  $$('#tce-mode button').forEach((b) => (b.onclick = () => {
-    ed.mode = b.dataset.v;
-    $$('#tce-mode button').forEach((x) => x.classList.toggle('on', x === b));
-    syncSeg($('#tce-mode'));
-  }));
+  $('#tce-search').addEventListener('input', (e) => { ed.query = e.target.value; renderSettings(); });
   $$('#tce-tint-amt, #tce-bright, #tce-sat').forEach((el) => el.addEventListener('input', paintQuick));
   $('#tce-quick-apply').onclick = quickApply;
-  $('#tce-revert').onclick = () => { TC.revert(ed.model); syncAllRows(); setDirtyTag(); queueDraw(); };
+  $('#tce-revert').onclick = async () => {
+    if (!(await ctx.modal({ title: 'Undo all changes?', text: 'Every setting goes back to how it was when you opened ' + ed.name + '.', confirm: 'Undo all', danger: true }))) return;
+    TC.revert(ed.model); renderSettings(); setDirtyTag(); queueDraw();
+  };
   $('#tce-export').onclick = exportXml;
   $('#tce-weather').onclick = async () => {
     if (TC.isDirty(ed.model)) return notify.warning('Save first', 'Press Save to game, then use this file for sunny weather.');
@@ -510,20 +527,24 @@ async function baseFiles() {
 
 // ---------- the picture as the actual sky ----------
 
-/** Open a skydome.ytd: from the dropped pack, then citizen, then GTA V itself, else ask. */
+/** Open a skydome.ytd without asking: the dropped pack, then citizen, then the
+ *  player's own GTA V (found through FiveM, unlocked automatically if needed). */
 async function openSky() {
   const st = await api.call('sky:status');
-  const order = [st.inPack && 'pack', st.inCitizen && 'citizen', st.gameExe && 'game'].filter(Boolean);
+  const order = [st.inPack && 'pack', st.inCitizen && 'citizen', st.gameDir && 'game'].filter(Boolean);
+  let lastError = null;
   for (const src of order) {
-    try { return await api.call('sky:open', src); } catch (e) {
-      if (needsKeys(e) && (await ensureKeys('GTA V\'s sky texture is in an encrypted archive.'))) {
-        try { return await api.call('sky:open', src); } catch (e2) { /* try the next source */ }
-      }
+    const h = src === 'game' ? notify({ type: 'loading', title: 'Getting the sky from your GTA V…', message: 'First time only: this can take about 10 seconds.' }) : null;
+    try {
+      const r = await api.call('sky:open', src);
+      if (h) h.update({ type: 'success', title: 'Got the sky from your GTA V', message: 'Your game files were only read, never changed.' });
+      return r;
+    } catch (e) {
+      lastError = cleanError(e.message);
+      if (h) h.close();
     }
   }
-  const ok = await ctx.modal({ title: 'Where is your sky file?', text: 'To put your picture in the sky I need GTA V\'s skydome.ytd. I could not find it in your pack, your citizen folder or your GTA V install. Pick it yourself (you can export it from x64a.rpf → textures with OpenIV or CodeWalker).', confirm: 'Pick skydome.ytd' });
-  if (!ok) return null;
-  return api.call('sky:open', 'pick');
+  return { error: order.length ? lastError : 'not-found' };
 }
 
 function encodeLevels(img, t) {
@@ -552,27 +573,42 @@ function encodeLevels(img, t) {
   return out;
 }
 
-async function applySkyPicture() {
-  if (aip.sky && aip.sky.forImage === aip.image.id && !aip.sky.error) return aip.sky;
-  const opened = await openSky();
-  if (!opened) { aip.sky = { error: 'No sky file was chosen, so only the sky colours were changed.' }; return aip.sky; }
-  const tex = opened.textures[opened.skyIndex];
-  if (!tex.editable) {
-    aip.sky = { error: `The sky texture in ${opened.label} is ${tex.format}, which this app cannot write yet. The sky colours were still changed.` };
+async function applySkyPicture(opened = null) {
+  if (!opened && aip.sky && aip.sky.forImage === aip.image.id && !aip.sky.error) return aip.sky;
+  opened = opened || (await openSky());
+  if (!opened || opened.error) {
+    aip.sky = { error: opened && opened.error !== 'not-found'
+      ? 'I couldn\'t open GTA V\'s sky file (' + opened.error + '), so I matched the sky colours to your picture instead.'
+      : 'I couldn\'t find GTA V\'s sky file on this PC, so I matched the sky colours to your picture instead.', canPick: true };
     return aip.sky;
   }
-  const h = notify({ type: 'loading', title: 'Putting your picture in the sky…', message: tex.width + '×' + tex.height + ' ' + tex.format });
+  const tex = opened.textures[opened.skyIndex];
+  if (!tex.editable) {
+    aip.sky = { error: `The sky texture in ${opened.label} uses ${tex.format} compression, which I can't write yet, so I matched the sky colours to your picture instead.` };
+    return aip.sky;
+  }
   await frame(); await frame();
   try {
     await api.call('sky:apply', tex.index, encodeLevels(aip.image.img, tex));
-    h.update({ type: 'success', title: 'Sky picture ready', message: 'It goes into the pack when you install it.' });
   } catch (e) {
-    h.update({ type: 'error', title: 'Sky picture failed', message: e.message });
-    aip.sky = { error: 'Could not write the sky texture: ' + e.message };
+    aip.sky = { error: 'I couldn\'t write the sky texture (' + e.message + '), so I matched the sky colours to your picture instead.' };
     return aip.sky;
   }
   aip.sky = { label: opened.label, rel: opened.rel, tex, forImage: aip.image.id };
   return aip.sky;
+}
+
+/** The "choose it yourself" link in a chat message, for when the sky file was not found. */
+async function pickSkyFile() {
+  if (!aip.image) return notify.info('Add a picture first', 'Then I can put it in the sky.');
+  try {
+    const opened = await api.call('sky:open', 'pick');
+    if (!opened) return;
+    const sk = await applySkyPicture(opened);
+    if (sk.error) return bubble('ai', esc(sk.error));
+    if (aip.result) { aip.result.skyOk = true; showResult(); }
+    bubble('ai', `Done: your picture is now the sky texture (${esc(sk.tex.width + '×' + sk.tex.height)}). Press <b>Install pack</b> to use it.`);
+  } catch (e) { notify.error('Could not use that file', e.message); }
 }
 
 // ---------- create ----------
@@ -622,20 +658,31 @@ async function generate() {
 
     const files = await baseFiles();
     const res = AI.buildPack(aip.spec, files);
-    const lines = res.report.map((r) => `${r.ok ? '✓' : '!'} ${esc(r.text)}`);
-
     let skyOk = false;
+    let sk = null;
     if (aip.spec.skyImage && aip.image) {
-      const sk = await applySkyPicture();
+      sk = await applySkyPicture();
       skyOk = !sk.error;
-      lines.unshift(skyOk ? `✓ Your picture is now the sky texture (${esc(sk.tex.width + '×' + sk.tex.height)}, from ${esc(sk.label)}). GTA shows it at night with the stars${aip.spec.skyImage.allDay ? ', and I set it to show all day' : '; say <i>all day</i> to show it in the daytime too'}.` : '! ' + esc(sk.error));
+      // without the texture there is no sky picture to talk about
+      if (!skyOk) res.report = res.report.filter((r) => !/sky picture/i.test(r.text));
+    }
+    const lines = res.report.map((r) => `${r.ok ? '✓' : '!'} ${esc(r.text)}`);
+    if (sk) {
+      lines.unshift(skyOk ? `✓ Your picture is now the sky texture (${esc(sk.tex.width + '×' + sk.tex.height)}, from ${esc(sk.label)}). GTA shows it at night with the stars${aip.spec.skyImage.allDay ? ', and I set it to show all day' : '; say <i>all day</i> to show it in the daytime too'}.` : '! ' + esc(sk.error) + (sk.canPick ? ' <button class="link-btn" data-act="pick-sky">Have the file? Choose it</button>' : ''));
     }
 
     const tw = await api.call('tweaks:list');
     for (const [id, on] of Object.entries(res.tweaks)) {
       const t = tw.find((x) => x.id === id);
-      const missing = t && on && !t.hasFiles;
-      lines.push(missing ? `! ${esc(AI.WORLD_LABEL[id])}: load its removal files on the World page once, then I can switch it` : `✓ ${esc(AI.WORLD_LABEL[id])}: ${on ? 'removed' : 'visible'}`);
+      const label = AI.WORLD_LABEL[id];
+      if (t && !t.hasFiles) {
+        // Nothing to switch: the player's packs do not come with removal files for this.
+        delete res.tweaks[id];
+        lines.push(on ? `! ${esc(label)}: your packs don't include files that remove ${esc(label.toLowerCase())}, so I can't take them out. If you get those files, add them on the World page.` : `✓ ${esc(label)}: stay as they are`);
+      } else if (t && t.enabled === on) {
+        delete res.tweaks[id];
+        lines.push(`✓ ${esc(label)}: already ${on ? 'removed' : 'in the game'}`);
+      } else lines.push(`✓ ${esc(label)}: ${on ? 'removed' : 'back in the game'}`);
     }
     if (!Object.keys(files).length && (aip.spec.sky || aip.spec.grade || aip.spec.fps || Object.keys(aip.spec.adjust || {}).length)) {
       lines.push('! I found no timecycle files ' + (aip.pack ? 'in this pack' : 'in your game (link your citizen folder or add a pack)') + ', so colours, stars and FPS could not be changed.');
@@ -655,7 +702,7 @@ const pick = (p) => ({ zenith: p.zenith, horizon: p.horizon, sun: p.sun, cloud: 
 
 function showResult() {
   const r = aip.result;
-  $('#aip-spec').innerHTML = AI.describeSpec(aip.spec).map((c) => `<span class="tag">${esc(c)}</span>`).join('');
+  $('#aip-spec').innerHTML = AI.describeSpec(aip.spec).filter((c) => r.skyOk || !/^Picture sky/.test(c)).map((c) => `<span class="tag">${esc(c)}</span>`).join('');
   $('#aip-report').innerHTML = r.report.map((x) => `<li class="${x.ok ? 'ok' : 'warn'}">${esc(x.text)}</li>`).join('');
   const hasWork = Object.keys(r.files).length || Object.keys(r.tweaks).length || r.skyOk || aip.pack;
   $('#aip-install').disabled = !hasWork;
@@ -726,8 +773,8 @@ async function editAiResult() {
   ed.aiDraft = { name: rel.split('/').pop(), rel, xml: r.files[rel] };
   ed.rel = '__ai__'; ed.name = ed.aiDraft.name;
   ed.model = TC.parse(r.files[rel]);
-  const secs = ed.model.sections.filter((s) => s.params.length);
-  ed.sectionId = (secs.find((s) => /extrasunny|clear/i.test(s.label)) || secs[0] || {}).id || null;
+  ed.open = null;
+  pickDefaultSection();
   setPane('editor');
   notify.info('Opened in the editor', 'This is the AI version of ' + ed.name + '. Save it to the game or as a pack when you are done.');
 }
@@ -736,6 +783,7 @@ function initAi() {
   $('#aip-examples').innerHTML = AI.EXAMPLES.map((e) => `<button class="chip" data-t="${esc(e)}">${esc(e)}</button>`).join('');
   $$('#aip-examples .chip').forEach((c) => (c.onclick = () => { $('#aip-text').value = c.dataset.t; $('#aip-text').focus(); }));
   $('#aip-send').onclick = generate;
+  $('#aip-log').addEventListener('click', (e) => { if (e.target.closest('[data-act=pick-sky]')) pickSkyFile(); });
   $('#aip-text').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); generate(); } });
   $('#aip-attach').onclick = pickImage;
   $('#aip-folder').onclick = pickPack;

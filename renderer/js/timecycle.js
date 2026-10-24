@@ -289,3 +289,66 @@ export function twilight(hour) {
   const elev = Math.sin(((hour - 6) / 12) * Math.PI);
   return Math.exp(-Math.pow((elev - 0.02) / 0.22, 2)) * (hour > 3 && hour < 22 ? 1 : 0);
 }
+
+// ---------- friendly names ----------
+
+const NAMES = {
+  sky_zenith_col: 'Sky colour (top)',
+  sky_zenith_transition_col: 'Sky colour (middle)',
+  sky_azimuth_east_col: 'Horizon colour (sunrise side)',
+  sky_azimuth_west_col: 'Horizon colour (sunset side)',
+  sky_azimuth_transition_col: 'Horizon colour (between)',
+  sky_horizon_col: 'Horizon colour',
+  sky_plane: 'Sky below the horizon',
+  sky_sun_col: 'Sun glow colour',
+  sky_sun_disc_col: 'Sun colour',
+  sky_moon_col: 'Moon colour',
+  sky_cloud_base_col: 'Cloud colour',
+  fog_col: 'Fog colour',
+  light_dir_col: 'Sunlight colour',
+  light_natural_amb_down_col: 'Ambient light (from the ground)',
+  light_natural_amb_up_col: 'Ambient light (from the sky)',
+  light_directional_amb_col: 'Bounce light colour',
+  light_artificial_int_down_col: 'Indoor lights (down)',
+  light_artificial_int_up_col: 'Indoor lights (up)',
+  light_artificial_ext_down_col: 'Street lights (down)',
+  light_artificial_ext_up_col: 'Street lights (up)',
+  sky_stars_iten: 'Stars brightness',
+  sky_moon_iten: 'Moon brightness',
+  sky_moon_disc_size: 'Moon size',
+  sky_sun_disc_size: 'Sun size',
+  sky_sun_hdr: 'Sun glow strength',
+  sky_hdr: 'Sky brightness',
+  light_dir_mult: 'Sunlight strength',
+  lod_mult: 'Detail distance',
+  shadow_distance_mult: 'Shadow distance',
+  ssao_inten: 'Ambient occlusion',
+  light_ray_mult: 'Light rays',
+  postfx_exposure: 'Exposure',
+  fog_start: 'Fog start distance',
+};
+
+/** Human name for a timecycle tag ("sky_zenith_col_inten" -> "Sky colour (top) brightness"). */
+export function labelOf(name) {
+  const n = name.toLowerCase();
+  if (NAMES[n]) return NAMES[n];
+  const m = /^(.*?)_(inten|iten|intensity)$/.exec(n);
+  if (m && NAMES[m[1]]) return NAMES[m[1]].replace(/ colour/, '') + ' brightness';
+  const s = n.replace(/_col$/, '').replace(/_/g, ' ')
+    .replace(/\b(iten|inten)\b/g, 'intensity').replace(/\bmult\b/g, 'strength').replace(/\bamb\b/g, 'ambient')
+    .replace(/\bcol\b/g, 'colour').replace(/\bpostfx\b/g, 'post effect').replace(/\blod\b/g, 'detail');
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+/** "EXTRASUNNY / URBAN" -> { weather: 'EXTRASUNNY', area: 'URBAN' } */
+export function splitSection(label) {
+  const i = label.lastIndexOf(' / ');
+  return i < 0 ? { weather: label, area: null } : { weather: label.slice(0, i), area: label.slice(i + 3) };
+}
+
+export const AREA_NAMES = { GLOBAL: 'Countryside', URBAN: 'City' };
+export const WEATHER_NAMES = {
+  EXTRASUNNY: 'Extra sunny', CLEAR: 'Clear', CLOUDS: 'Cloudy', SMOG: 'Smog', FOGGY: 'Foggy', OVERCAST: 'Overcast',
+  RAIN: 'Rain', THUNDER: 'Thunder', CLEARING: 'Clearing', NEUTRAL: 'Neutral', SNOW: 'Snow', BLIZZARD: 'Blizzard',
+  SNOWLIGHT: 'Light snow', XMAS: 'Christmas', HALLOWEEN: 'Halloween',
+};
