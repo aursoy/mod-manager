@@ -38,7 +38,9 @@ function cloud(ctx, x, y, s, base, shade, alpha) {
   }
 }
 
-export function drawScene(canvas, sec, hour) {
+/** opts.image: a picture used as the sky texture. GTA blends it in at night with
+ *  the stars, or all day when opts.allDay. */
+export function drawScene(canvas, sec, hour, opts = null) {
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   const rect = canvas.getBoundingClientRect();
   const W = Math.max(2, Math.round(rect.width * dpr));
@@ -64,6 +66,17 @@ export function drawScene(canvas, sec, hour) {
     g.addColorStop(1, css(col, 0));
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, W, horizonY);
+  }
+
+  // the sky picture
+  if (opts && opts.image) {
+    const a = opts.allDay ? 0.92 : clamp01(1 - dl * 1.6) * 0.95;
+    if (a > 0.01) {
+      ctx.save();
+      ctx.globalAlpha = a;
+      ctx.drawImage(opts.image, 0, 0, W, horizonY);
+      ctx.restore();
+    }
   }
 
   // stars

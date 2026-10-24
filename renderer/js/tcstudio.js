@@ -1,5 +1,5 @@
-// Graphics page: the timecycle editor (live preview, every value editable) and
-// the Pack AI (turns a request, and optionally an image, into a graphics pack).
+// Graphics page: the Pack AI (a request, a picture and/or a pack folder become a
+// graphics pack) and the advanced timecycle editor (live preview, every value editable).
 
 import { notify } from './notify.js';
 import { icon } from './icons.js';
@@ -7,6 +7,8 @@ import { busy, syncSeg, fillRange } from './fx.js';
 import * as TC from './timecycle.js';
 import * as AI from './gfxai.js';
 import { drawScene } from './tcpreview.js';
+import { encode as encodeTex } from './dxt.js';
+import { ensureKeys, needsKeys } from './keys.js';
 
 const api = window.api;
 const $ = (s, r = document) => r.querySelector(s);
@@ -15,7 +17,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<
 const frame = () => new Promise((r) => requestAnimationFrame(r));
 
 let ctx = { modal: null, go: null, refreshGraphics: null };
-let pane = 'grade';
+let pane = 'packs';
 
 // =====================================================================
 // Timecycle editor
@@ -49,6 +51,9 @@ function setDirtyTag() {
   tag.classList.toggle('solid', n > 0);
   for (const id of ['tce-revert', 'tce-export', 'tce-pack', 'tce-save']) $('#' + id).disabled = !ed.model;
   $('#tce-revert').disabled = !n;
+  // FiveM only reads w_*.xml weather files; offer to hook up anything else.
+  const citizenFile = ed.model && ed.rel && !ed.rel.startsWith('__');
+  $('#tce-weather').classList.toggle('hidden', !(citizenFile && !/^w_/i.test(ed.name)));
 }
 
 async function populateFiles(selectRel) {
@@ -59,8 +64,9 @@ async function populateFiles(selectRel) {
   let html = items.length ? '' : '<option value="">No timecycle files found</option>';
   html += items.map((it) => `<option value="${esc(it.rel)}">${esc(it.name)}${it.cycles.length ? ' [' + esc(it.cycles[0]) + ']' : ''}</option>`).join('');
   if (ed.external) html += `<option value="__ext__">${esc(ed.external.name)} (opened file)</option>`;
+  if (ed.aiDraft) html += `<option value="__ai__">${esc(ed.aiDraft.name)} (AI version)</option>`;
   sel.innerHTML = html;
-  const want = selectRel || (ed.external && ed.rel === '__ext__' ? '__ext__' : ed.rel);
+  const want = selectRel || ed.rel;
   if (want && [...sel.options].some((o) => o.value === want)) sel.value = want;
   return items;
 }
@@ -74,6 +80,9 @@ async function openRel(rel, { force = false } = {}) {
     if (rel === '__ext__') {
       ed.rel = '__ext__'; ed.name = ed.external.name;
       ed.model = TC.parse(ed.external.xml);
+    } else if (rel === '__ai__') {
+      ed.rel = '__ai__'; ed.name = ed.aiDraft.name;
+      ed.model = TC.parse(ed.aiDraft.xml);
     } else {
       const xml = await api.call('timecycle:read', rel);
       ed.rel = rel; ed.name = rel.split('/').pop();
@@ -260,7 +269,10 @@ function togglePlay() {
 }
 
 function currentXml() { return TC.serialize(ed.model); }
-function targetRel() { return ed.rel && ed.rel !== '__ext__' ? ed.rel : 'common/data/timecycle/' + ed.name; }
+function targetRel() {
+  if (ed.rel === '__ai__') return ed.aiDraft.rel;
+  return ed.rel && ed.rel !== '__ext__' ? ed.rel : 'common/data/timecycle/' + ed.name;
+}
 
 async function saveToFiveM(btn) {
   if (!ed.model) return;
@@ -269,13 +281,14 @@ async function saveToFiveM(btn) {
     const xml = currentXml();
     const rel = targetRel();
     await api.call('timecycle:write', rel, xml);
+    if (ed.rel === '__ai__') ed.aiDraft = null;
     ed.rel = rel;
     const keep = ed.sectionId;
     ed.model = TC.parse(xml);
     ed.sectionId = keep;
     await populateFiles(rel);
     paintEditor();
-    notify.success('Saved to FiveM', ed.name + ' is written to citizen. Restart FiveM to see it. "Backups" can undo it.');
+    notify.success('Saved to your game', ed.name + ' is in your citizen folder. Restart FiveM to see it. Backups can undo it.');
     ctx.refreshGraphics && ctx.refreshGraphics();
   } catch (e) { notify.error('Could not save', e.message); }
   busy(btn, false);
@@ -283,12 +296,12 @@ async function saveToFiveM(btn) {
 
 async function saveAsPack(btn) {
   if (!ed.model) return;
-  const name = await ctx.modal({ title: 'Save as graphics pack', text: 'Saves this timecycle into your pack list so you can switch it on and off. Nothing in FiveM changes until you switch it on.', confirm: 'Save pack', input: { label: 'Pack name', value: ed.name.replace(/\.xml$/i, '') + ' edit' } });
+  const name = await ctx.modal({ title: 'Save as graphics pack', text: 'Saves this file as a pack under My packs, switched off. Nothing in your game changes until you switch it on.', confirm: 'Save pack', input: { label: 'Pack name', value: ed.name.replace(/\.xml$/i, '') + ' edit' } });
   if (!name) return;
   busy(btn, true);
   try {
     await api.call('pack:create', name, { [targetRel()]: currentXml() }, {}, { enable: false });
-    notify.success('Pack saved', name + ' is in Colour grade → Graphics packs.');
+    notify.success('Pack saved', name + ' is in My packs (switched off). Switch it on there.');
     ctx.refreshGraphics && ctx.refreshGraphics();
   } catch (e) { notify.error('Could not save pack', e.message); }
   busy(btn, false);
@@ -324,7 +337,7 @@ function quickApply() {
   $('#tce-sat').value = 100;
   paintQuick();
   syncAllRows(); setDirtyTag(); queueDraw();
-  notify.info('Colours updated', n + ' colour tracks changed in ' + sec.label + '. Revert undoes it.');
+  notify.info('Colours changed', n + ' colours changed in ' + sec.label + '. Undo all puts them back.');
 }
 
 function paintQuick() {
@@ -350,6 +363,13 @@ function initEditor() {
   $('#tce-quick-apply').onclick = quickApply;
   $('#tce-revert').onclick = () => { TC.revert(ed.model); syncAllRows(); setDirtyTag(); queueDraw(); };
   $('#tce-export').onclick = exportXml;
+  $('#tce-weather').onclick = async () => {
+    if (TC.isDirty(ed.model)) return notify.warning('Save first', 'Press Save to game, then use this file for sunny weather.');
+    try {
+      const r = await api.call('colour:activate', ed.rel);
+      notify.success('Now used for sunny weather', r.source + ' was copied over w_extrasunny.xml and w_clear.xml. Backups can undo it.');
+    } catch (e) { notify.error('Could not set weather', e.message); }
+  };
   $('#tce-pack').onclick = (e) => saveAsPack(e.currentTarget);
   $('#tce-save').onclick = (e) => saveToFiveM(e.currentTarget);
   $('#tce-hour-label').textContent = TC.hourLabel(ed.hour);
@@ -373,7 +393,10 @@ async function enterEditor() {
 // Pack AI
 // =====================================================================
 
-const aip = { spec: AI.emptySpec(), image: null, result: null, log: [], hasKey: false, installedId: null, hour: 12, playing: null, preview: null, busy: false };
+const aip = {
+  spec: AI.emptySpec(), image: null, pack: null, result: null, log: [], hasKey: false, installedId: null,
+  hour: 12, playing: null, preview: null, busy: false, sky: null, // sky: { label, rel, tex, forImage, error }
+};
 
 function bubble(who, html) {
   aip.log.push({ who, html });
@@ -385,14 +408,17 @@ function bubble(who, html) {
 
 function greet() {
   aip.log = [];
-  bubble('ai', `<b>Tell me what pack you want.</b> Attach an image to use as the sky, and mention anything you like: <i>no water, no black mountains, no props, have trees, no bushes</i>, or an <i>FPS boost</i>. You can keep chatting to change it ("now make it darker").`);
+  bubble('ai', `<b>Hi! Tell me what you want your game to look like.</b><br>
+    ${icon('image')} Add a <b>picture</b> and it becomes your sky.<br>
+    ${icon('folder')} Add a <b>pack folder</b> (or drop a .zip) and I build on top of it.<br>
+    Then just say things like <i>add stars</i>, <i>bigger moon</i>, <i>no water</i>, <i>no trees</i>, <i>sunset colours</i> or <i>FPS boost</i>. Keep chatting to change it.`);
 }
 
 async function refreshAiEngine() {
   try { aip.hasKey = (await api.call('ai:status')).hasKey; } catch (e) { aip.hasKey = false; }
-  $('#aip-engine').textContent = aip.hasKey ? 'Claude · reads images and long requests' : 'Built-in · works offline (add a key in Settings for Claude)';
+  $('#aip-engine').textContent = aip.hasKey ? 'Using Claude · understands any request' : 'Built-in · works offline · add a key in Settings for Claude';
   const st = $('#ai-key-state');
-  if (st) st.textContent = aip.hasKey ? 'A key is saved on this PC. Claude writes your pack specs.' : 'Optional. Lets Claude read your requests and images.';
+  if (st) st.textContent = aip.hasKey ? 'A key is saved on this PC. Claude writes your packs.' : 'Optional. Lets Claude understand any request and look at your pictures.';
   const btn = $('#ai-key-btn');
   if (btn) btn.textContent = aip.hasKey ? 'Remove key' : 'Add key';
 }
@@ -421,12 +447,12 @@ async function attachImage(file) {
   big.width = Math.max(1, Math.round(img.width * k2)); big.height = Math.max(1, Math.round(img.height * k2));
   big.getContext('2d').drawImage(img, 0, 0, big.width, big.height);
   const llm = { mediaType: 'image/jpeg', data: big.toDataURL('image/jpeg', 0.85).split(',')[1] };
-  aip.image = { name: file.name, url, palette, llm };
+  aip.image = { name: file.name, url, img, palette, llm, id: file.name + ':' + img.width + 'x' + img.height + ':' + file.data.length };
   $('#aip-thumb').src = url;
   $('#aip-img-name').textContent = file.name;
+  $('#aip-img-meta').textContent = img.width + '×' + img.height + ' · becomes your sky';
   $('#aip-attached').classList.remove('hidden');
-  const sw = Object.entries(palette).filter(([k3]) => ['zenith', 'horizon', 'sun', 'cloud', 'fog'].includes(k3)).map(([k3, v]) => `<span class="pal" style="background:${v}" title="${k3} ${v}"></span>`).join('');
-  bubble('ai', `Got <b>${esc(file.name)}</b>. Sky colours I read from it: <span class="pals">${sw}</span> (top to horizon, sun, cloud, fog).`);
+  bubble('ai', `Got your picture <b>${esc(file.name)}</b>. Press <b>Create</b> to make it your sky, or say what else you want too.`);
 }
 
 function clearImage() {
@@ -438,25 +464,122 @@ async function pickImage() {
   try {
     const f = await api.call('gfx:pickImage');
     if (f) await attachImage(f);
-  } catch (e) { notify.error('Image not added', e.message); }
+  } catch (e) { notify.error('Picture not added', e.message); }
 }
 
-async function weatherFiles() {
+async function loadPack(paths) {
+  try {
+    const info = await notify.promise(api.call('gfx:loadPack', paths), { loading: 'Reading pack…', success: 'Pack loaded', error: 'Could not read that pack' });
+    aip.pack = info;
+    aip.sky = null;
+    aip.result = null;
+    $('#aip-pack-name').textContent = info.name;
+    const bits = [info.count + ' files'];
+    bits.push(info.weather.length ? info.weather.length + ' weather files' : info.timecycles.length + ' timecycles');
+    if (info.skydome) bits.push('has a sky texture');
+    $('#aip-pack-meta').textContent = bits.join(' · ');
+    $('#aip-pack').classList.remove('hidden');
+    bubble('ai', `Loaded <b>${esc(info.name)}</b>: ${esc(bits.join(', '))}. I'll build on it and keep all of its files. ` +
+      (info.timecycles.length ? 'What should I change?' : 'It has no timecycle files, so I can only switch world options and the sky picture.'));
+  } catch (e) { /* toast shown */ }
+}
+
+async function pickPack() {
+  const dir = await api.call('pick:files', { directory: true, title: 'Select a graphics pack folder' });
+  if (dir) loadPack(dir);
+}
+
+async function clearPack() {
+  await api.call('gfx:clearPack').catch(() => {});
+  aip.pack = null; aip.sky = null; aip.result = null;
+  $('#aip-pack').classList.add('hidden');
+  bubble('ai', 'Pack removed. I\'ll build on the files in your game instead.');
+}
+
+async function baseFiles() {
+  if (aip.pack) return (await api.call('gfx:packTimecycles')) || {};
   const scan = await api.call('colour:scan');
   const items = scan.items || [];
   const weather = items.filter((i) => i.isWeather);
-  const pick = weather.length ? weather : items;
   const files = {};
-  for (const it of pick) {
+  for (const it of weather.length ? weather : items) {
     try { files[it.rel] = await api.call('timecycle:read', it.rel, { stock: true }); } catch (e) { /* skip unreadable */ }
   }
   return files;
 }
 
+// ---------- the picture as the actual sky ----------
+
+/** Open a skydome.ytd: from the dropped pack, then citizen, then GTA V itself, else ask. */
+async function openSky() {
+  const st = await api.call('sky:status');
+  const order = [st.inPack && 'pack', st.inCitizen && 'citizen', st.gameExe && 'game'].filter(Boolean);
+  for (const src of order) {
+    try { return await api.call('sky:open', src); } catch (e) {
+      if (needsKeys(e) && (await ensureKeys('GTA V\'s sky texture is in an encrypted archive.'))) {
+        try { return await api.call('sky:open', src); } catch (e2) { /* try the next source */ }
+      }
+    }
+  }
+  const ok = await ctx.modal({ title: 'Where is your sky file?', text: 'To put your picture in the sky I need GTA V\'s skydome.ytd. I could not find it in your pack, your citizen folder or your GTA V install. Pick it yourself (you can export it from x64a.rpf → textures with OpenIV or CodeWalker).', confirm: 'Pick skydome.ytd' });
+  if (!ok) return null;
+  return api.call('sky:open', 'pick');
+}
+
+function encodeLevels(img, t) {
+  const parts = [];
+  let src = img;
+  let sw = img.width; let sh = img.height;
+  for (let i = 0; i < t.levels; i++) {
+    const w = Math.max(1, t.width >> i); const h = Math.max(1, t.height >> i);
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    const g = c.getContext('2d', { willReadFrequently: true });
+    g.imageSmoothingQuality = 'high';
+    if (i === 0) {
+      // cover: fill the texture, crop what does not fit
+      const k = Math.max(w / sw, h / sh);
+      g.drawImage(src, (w - sw * k) / 2, (h - sh * k) / 2, sw * k, sh * k);
+    } else g.drawImage(src, 0, 0, w, h);
+    const px = g.getImageData(0, 0, w, h).data;
+    for (let k = 3; k < px.length; k += 4) px[k] = 255;
+    parts.push(encodeTex(t.format, px, w, h));
+    src = c; sw = w; sh = h;
+  }
+  const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+  let o = 0;
+  for (const p of parts) { out.set(p, o); o += p.length; }
+  return out;
+}
+
+async function applySkyPicture() {
+  if (aip.sky && aip.sky.forImage === aip.image.id && !aip.sky.error) return aip.sky;
+  const opened = await openSky();
+  if (!opened) { aip.sky = { error: 'No sky file was chosen, so only the sky colours were changed.' }; return aip.sky; }
+  const tex = opened.textures[opened.skyIndex];
+  if (!tex.editable) {
+    aip.sky = { error: `The sky texture in ${opened.label} is ${tex.format}, which this app cannot write yet. The sky colours were still changed.` };
+    return aip.sky;
+  }
+  const h = notify({ type: 'loading', title: 'Putting your picture in the sky…', message: tex.width + '×' + tex.height + ' ' + tex.format });
+  await frame(); await frame();
+  try {
+    await api.call('sky:apply', tex.index, encodeLevels(aip.image.img, tex));
+    h.update({ type: 'success', title: 'Sky picture ready', message: 'It goes into the pack when you install it.' });
+  } catch (e) {
+    h.update({ type: 'error', title: 'Sky picture failed', message: e.message });
+    aip.sky = { error: 'Could not write the sky texture: ' + e.message };
+    return aip.sky;
+  }
+  aip.sky = { label: opened.label, rel: opened.rel, tex, forImage: aip.image.id };
+  return aip.sky;
+}
+
+// ---------- create ----------
+
 async function askClaude(text) {
-  const state = JSON.stringify({ ...aip.spec, sky: aip.spec.sky, grade: aip.spec.grade });
-  const prompt = (aip.image ? 'An image is attached. The player wants it as the sky unless they say otherwise.\n' : '')
-    + 'Current pack spec (update it, do not start over unless asked): ' + state + '\n\nPlayer request: ' + (text || '(only an image, use it as the sky)');
+  const prompt = (aip.image ? 'A picture is attached.\n' : '') + (aip.pack ? 'The player loaded the pack "' + aip.pack.name + '" to build on.\n' : '')
+    + 'Current pack spec (update it, do not start over unless asked): ' + JSON.stringify(aip.spec) + '\n\nPlayer request: ' + (text || '(only a picture: make it the sky)');
   const reply = await api.call('ai:ask', { system: AI.LLM_SYSTEM, prompt, image: aip.image ? aip.image.llm : null });
   return AI.validateSpec(AI.extractJson(reply));
 }
@@ -465,46 +588,61 @@ async function generate() {
   if (aip.busy) return;
   const input = $('#aip-text');
   const text = input.value.trim();
-  if (!text && !aip.image) return notify.info('Say what you want', 'Describe the pack, or attach an image to use as the sky.');
+  if (!text && !aip.image) return notify.info('Say what you want', 'Describe your pack, or add a picture for the sky.');
   aip.busy = true;
   $('#aip-examples').classList.add('hidden');
   const btn = $('#aip-send');
   busy(btn, true);
-  bubble('user', (aip.image ? `<span class="att">${icon('image')}${esc(aip.image.name)}</span>` : '') + esc(text || 'Use this image as the sky.'));
+  bubble('user', (aip.image ? `<span class="att">${icon('image')}${esc(aip.image.name)}</span>` : '') + esc(text || 'Make this picture my sky.'));
   input.value = '';
   try {
     let spec = null;
     let engine = 'built-in';
+    const patch = AI.parsePrompt(text);
     if (aip.hasKey) {
       try { spec = await askClaude(text); engine = 'Claude'; } catch (e) {
         bubble('ai', `Claude could not answer (${esc(e.message)}), so I used the built-in reader.`);
       }
     }
     if (spec) {
-      if (aip.image && !spec.sky) spec.sky = { ...aip.image.palette, strength: 0.85 };
+      if (aip.image && !spec.sky) spec.sky = { ...pick(aip.image.palette), strength: 0.85 };
       aip.spec = spec;
     } else {
-      const patch = AI.parsePrompt(text);
-      if (aip.image) patch.sky = { ...pick(aip.image.palette), strength: 0.85 };
+      if (aip.image) {
+        patch.sky = { ...pick(aip.image.palette), strength: 0.85 };
+        patch.skyImage = patch.imageUse === 'colours' ? null : { allDay: !!patch.imageAllDay };
+      }
       aip.spec = AI.mergeSpec(aip.spec, patch);
     }
+    if (!aip.image) aip.spec.skyImage = null;
     if (AI.isEmptySpec(aip.spec)) {
-      bubble('ai', "I couldn't find anything to change in that. Try things like <i>sunset sky</i>, <i>no water</i>, <i>no trees</i>, <i>FPS boost</i>, or attach an image.");
+      bubble('ai', "I didn't catch anything to change. Try <i>add stars</i>, <i>sunset sky</i>, <i>no water</i>, <i>no trees</i>, <i>FPS boost</i>, or add a picture.");
       return;
     }
-    const files = await weatherFiles();
+
+    const files = await baseFiles();
     const res = AI.buildPack(aip.spec, files);
-    const tw = await api.call('tweaks:list');
-    aip.result = { ...res, name: AI.packName(aip.spec), base: files, tweakInfo: tw };
-    showResult();
     const lines = res.report.map((r) => `${r.ok ? '✓' : '!'} ${esc(r.text)}`);
+
+    let skyOk = false;
+    if (aip.spec.skyImage && aip.image) {
+      const sk = await applySkyPicture();
+      skyOk = !sk.error;
+      lines.unshift(skyOk ? `✓ Your picture is now the sky texture (${esc(sk.tex.width + '×' + sk.tex.height)}, from ${esc(sk.label)}). GTA shows it at night with the stars${aip.spec.skyImage.allDay ? ', and I set it to show all day' : '; say <i>all day</i> to show it in the daytime too'}.` : '! ' + esc(sk.error));
+    }
+
+    const tw = await api.call('tweaks:list');
     for (const [id, on] of Object.entries(res.tweaks)) {
       const t = tw.find((x) => x.id === id);
       const missing = t && on && !t.hasFiles;
-      lines.push(missing ? `! ${esc(AI.WORLD_LABEL[id])}: needs its removal files loaded first (World page), so I can't switch it yet` : `✓ ${esc(AI.WORLD_LABEL[id])} → ${on ? 'removed' : 'visible'}`);
+      lines.push(missing ? `! ${esc(AI.WORLD_LABEL[id])}: load its removal files on the World page once, then I can switch it` : `✓ ${esc(AI.WORLD_LABEL[id])}: ${on ? 'removed' : 'visible'}`);
     }
-    if (!Object.keys(files).length && (aip.spec.sky || aip.spec.grade || aip.spec.fps)) lines.push('! No timecycle files found in your citizen folder, so sky, grade and FPS changes could not be built. Link your citizen folder first.');
-    bubble('ai', `Pack ready <small>(${engine})</small>: <b>${esc(aip.result.name)}</b><br>${lines.join('<br>')}<br><small>Preview on the right. Install it when you're happy.</small>`);
+    if (!Object.keys(files).length && (aip.spec.sky || aip.spec.grade || aip.spec.fps || Object.keys(aip.spec.adjust || {}).length)) {
+      lines.push('! I found no timecycle files ' + (aip.pack ? 'in this pack' : 'in your game (link your citizen folder or add a pack)') + ', so colours, stars and FPS could not be changed.');
+    }
+    aip.result = { ...res, name: AI.packName(aip.spec), base: files, skyOk };
+    showResult();
+    bubble('ai', `Here's <b>${esc(aip.result.name)}</b> <small>(${engine})</small>:<br>${lines.join('<br>')}<br><small>Check the preview, then press <b>Install pack</b>.</small>`);
   } catch (e) {
     bubble('ai', 'Something went wrong: ' + esc(e.message));
   } finally {
@@ -519,9 +657,10 @@ function showResult() {
   const r = aip.result;
   $('#aip-spec').innerHTML = AI.describeSpec(aip.spec).map((c) => `<span class="tag">${esc(c)}</span>`).join('');
   $('#aip-report').innerHTML = r.report.map((x) => `<li class="${x.ok ? 'ok' : 'warn'}">${esc(x.text)}</li>`).join('');
-  const hasWork = Object.keys(r.files).length || Object.keys(r.tweaks).length;
+  const hasWork = Object.keys(r.files).length || Object.keys(r.tweaks).length || r.skyOk || aip.pack;
   $('#aip-install').disabled = !hasWork;
   $('#aip-edit').disabled = !Object.keys(r.files).length;
+  $('#aip-status').textContent = r.name;
   const rel = Object.keys(r.files)[0] || Object.keys(r.base)[0];
   aip.preview = null;
   if (rel) {
@@ -533,10 +672,14 @@ function showResult() {
 }
 
 function drawAi() {
-  const cv = $('#aip-canvas');
   if (pane !== 'ai') return;
-  if (aip.preview) drawScene(cv, aip.preview, aip.hour);
-  else { const c = cv.getContext('2d'); c.clearRect(0, 0, cv.width, cv.height); }
+  const cv = $('#aip-canvas');
+  const showImg = aip.result && aip.result.skyOk && aip.image;
+  const has = !!(aip.preview || showImg);
+  $('#aip-empty').classList.toggle('hidden', has);
+  if (has) {
+    drawScene(cv, aip.preview || { colours: [], scalars: [], params: [] }, aip.hour, showImg ? { image: aip.image.img, allDay: !!(aip.spec.skyImage && aip.spec.skyImage.allDay) } : null);
+  } else { const c = cv.getContext('2d'); c.clearRect(0, 0, cv.width, cv.height); }
   $('#aip-tag').textContent = TC.hourLabel(aip.hour);
   $('#aip-hour-label').textContent = TC.hourLabel(aip.hour);
 }
@@ -562,16 +705,15 @@ async function installAi(btn) {
   busy(btn, true);
   try {
     if (aip.installedId) { try { await api.call('tweaks:removeCustom', aip.installedId); } catch (e) { /* already gone */ } aip.installedId = null; }
-    const out = await api.call('pack:create', r.name, r.files, r.tweaks);
+    const out = await api.call('pack:create', r.name, r.files, r.tweaks, { includePack: !!aip.pack, includeSky: !!r.skyOk });
     aip.installedId = out.id;
     const bits = [];
-    if (out.id) bits.push(Object.keys(r.files).length + ' file(s) installed');
+    if (out.id) bits.push('pack is on');
     if (out.applied.length) bits.push(out.applied.map((i) => AI.WORLD_LABEL[i]).join(', ') + ' switched');
     notify.success('Pack installed', (bits.join(' · ') || 'Done') + '. Restart FiveM to see it.');
     if (out.skipped.length) {
-      bubble('ai', 'Installed, but I couldn\'t switch: ' + out.skipped.map((s) => `<b>${esc(AI.WORLD_LABEL[s.id] || s.id)}</b> (${esc(s.reason)})`).join('; ') + '. Load those files on the World page, then ask me again.');
-      notify.warning('Some options were skipped', out.skipped.map((s) => AI.WORLD_LABEL[s.id] || s.id).join(', ') + ' need files first.');
-    } else bubble('ai', `Installed <b>${esc(r.name)}</b>. It is in Graphics packs and every file is backed up, so you can switch it off any time.`);
+      bubble('ai', 'Installed! I couldn\'t switch ' + out.skipped.map((s) => `<b>${esc(AI.WORLD_LABEL[s.id] || s.id)}</b>`).join(', ') + ' yet: load their removal files on the World page once, then ask me again.');
+    } else bubble('ai', `Installed <b>${esc(r.name)}</b>. You'll find it under <b>My packs</b>, where you can switch it off any time.`);
     ctx.refreshGraphics && ctx.refreshGraphics();
   } catch (e) { notify.error('Could not install pack', e.message); }
   busy(btn, false);
@@ -581,12 +723,13 @@ async function editAiResult() {
   const r = aip.result;
   const rel = r && Object.keys(r.files)[0];
   if (!rel) return;
-  ed.rel = rel; ed.name = rel.split('/').pop();
+  ed.aiDraft = { name: rel.split('/').pop(), rel, xml: r.files[rel] };
+  ed.rel = '__ai__'; ed.name = ed.aiDraft.name;
   ed.model = TC.parse(r.files[rel]);
   const secs = ed.model.sections.filter((s) => s.params.length);
   ed.sectionId = (secs.find((s) => /extrasunny|clear/i.test(s.label)) || secs[0] || {}).id || null;
   setPane('editor');
-  notify.info('Opened in the editor', 'This is the AI version of ' + ed.name + '. Save it to FiveM or as a pack when you are done.');
+  notify.info('Opened in the editor', 'This is the AI version of ' + ed.name + '. Save it to the game or as a pack when you are done.');
 }
 
 function initAi() {
@@ -595,10 +738,14 @@ function initAi() {
   $('#aip-send').onclick = generate;
   $('#aip-text').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); generate(); } });
   $('#aip-attach').onclick = pickImage;
+  $('#aip-folder').onclick = pickPack;
   $('#aip-img-clear').onclick = clearImage;
-  $('#aip-reset').onclick = () => {
-    aip.spec = AI.emptySpec(); aip.result = null; aip.preview = null; aip.installedId = null;
-    clearImage(); greet(); $('#aip-examples').classList.remove('hidden'); $('#aip-spec').innerHTML = ''; $('#aip-report').innerHTML = '';
+  $('#aip-pack-clear').onclick = clearPack;
+  $('#aip-reset').onclick = async () => {
+    aip.spec = AI.emptySpec(); aip.result = null; aip.preview = null; aip.installedId = null; aip.sky = null;
+    clearImage(); if (aip.pack) { await api.call('gfx:clearPack').catch(() => {}); aip.pack = null; $('#aip-pack').classList.add('hidden'); }
+    greet(); $('#aip-examples').classList.remove('hidden');
+    $('#aip-spec').innerHTML = ''; $('#aip-report').innerHTML = ''; $('#aip-status').textContent = 'Nothing made yet';
     $('#aip-install').disabled = true; $('#aip-edit').disabled = true; drawAi();
   };
   $('#aip-hour').addEventListener('input', (e) => { if (aip.playing) toggleAiPlay(); aip.hour = +e.target.value; drawAi(); });
@@ -619,7 +766,7 @@ function initKey() {
         await api.call('ai:setKey', '');
         notify.success('Key removed', 'Pack AI is using the built-in reader.');
       } else {
-        const key = await ctx.modal({ title: 'Anthropic API key', text: 'Paste a key from console.anthropic.com. It is stored only on this PC and used only when you press Generate. Requests go straight to Anthropic.', confirm: 'Save key', input: { label: 'API key (sk-ant-…)', value: '' } });
+        const key = await ctx.modal({ title: 'Anthropic API key', text: 'Paste a key from console.anthropic.com. It is stored only on this PC and only used when you press Create. Requests go straight to Anthropic.', confirm: 'Save key', input: { label: 'API key (sk-ant-…)', value: '' } });
         if (!key) return;
         await api.call('ai:setKey', key);
         notify.success('Key saved', 'Pack AI will use Claude from now on.');
@@ -633,6 +780,12 @@ function initKey() {
 // Tabs
 // =====================================================================
 
+const LEAD = {
+  packs: 'Your graphics packs live here. Add one, switch it on or off, and tint the colours of your whole game.',
+  ai: 'Describe the look you want and the AI builds a pack for you. Add a picture to make it your sky, or add a pack folder to build on.',
+  editor: 'For tinkerers: open any timecycle file and change every colour and value by hand, with a live preview of the day.',
+};
+
 function setPane(name) {
   if (name !== 'editor') stopPlay();
   if (name !== 'ai' && aip.playing) toggleAiPlay();
@@ -640,15 +793,17 @@ function setPane(name) {
   $$('#gfx-tabs button').forEach((b) => b.classList.toggle('on', b.dataset.pane === name));
   syncSeg($('#gfx-tabs'));
   $$('.gfx-pane').forEach((p) => p.classList.toggle('hidden', p.dataset.pane !== name));
+  $('#gfx-lead').textContent = LEAD[name];
   requestAnimationFrame(() => $$('.gfx-pane:not(.hidden) .seg').forEach(syncSeg));
   if (name === 'editor') enterEditor();
   if (name === 'ai') { refreshAiEngine(); requestAnimationFrame(drawAi); }
-  if (name === 'grade') ctx.refreshGraphics && ctx.refreshGraphics();
+  if (name === 'packs') ctx.refreshGraphics && ctx.refreshGraphics();
 }
 
 export function initStudio(c) {
   ctx = { ...ctx, ...c };
   $$('#gfx-tabs button').forEach((b) => (b.onclick = () => setPane(b.dataset.pane)));
+  $('#gfx-lead').textContent = LEAD[pane];
   initEditor();
   initAi();
   initKey();
@@ -667,9 +822,10 @@ export async function handleDrop(paths) {
   const isImg = (p) => /\.(png|jpe?g|webp|gif|bmp)$/i.test(p);
   if (paths.every(isImg)) {
     if (pane !== 'ai') setPane('ai');
-    try { await attachImage(await api.call('gfx:readImage', paths[0])); } catch (e) { notify.error('Image not added', e.message); }
+    try { await attachImage(await api.call('gfx:readImage', paths[0])); } catch (e) { notify.error('Picture not added', e.message); }
     return true;
   }
   if (pane === 'editor' && paths.length === 1 && /\.xml$/i.test(paths[0])) { await openExternal(paths[0]); return true; }
+  if (pane === 'ai') { await loadPack(paths); return true; }
   return false;
 }

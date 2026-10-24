@@ -37,6 +37,9 @@ const KNOWN_TARGETS = {
   'weaponcomponents.meta': 'common/data/weaponcomponents.meta',
   'weaponanimations.meta': 'common/data/weaponanimations.meta',
   'explosion.meta': 'common/data/effects/explosion.meta',
+
+  // Sky texture (night sky / stars / moon). Best guess at the platform:/textures path.
+  'skydome.ytd': 'platform/textures/skydome.ytd',
 };
 
 const IGNORED_EXTENSIONS = new Set(['.txt', '.url', '.md', '.rtf', '.doc', '.docx', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.ini', '.db', '.pdf']);
@@ -387,9 +390,25 @@ class CitizenManager {
     });
   }
 
-    /** Copy files from a folder / zip / list of files into a tweak's library. */
+  /** Copy files from a folder / zip / list of files into a tweak's library. */
   importFiles(id, sources) {
     const lib = this.libraryDir(id);
+    const staged = this.stageSources(sources);
+    fs.rmSync(lib, { recursive: true, force: true });
+    for (const s of staged) {
+      const dest = path.join(lib, ...s.rel.split('/'));
+      fs.mkdirSync(path.dirname(dest), { recursive: true });
+      if (s.data) fs.writeFileSync(dest, s.data);
+      else fs.copyFileSync(s.from, dest);
+    }
+    this.log('info', 'Loaded ' + staged.length + ' file(s) into ' + id);
+    this.save();
+    return staged.length;
+  }
+
+  /** Work out where every file of a folder / zip / file list goes in citizen.
+   *  Returns [{ rel, from }] (files on disk) or [{ rel, data }] (zip entries). Writes nothing. */
+  stageSources(sources) {
     const staged = [];
     const AdmZip = require('adm-zip');
 
@@ -461,18 +480,9 @@ class CitizenManager {
     }
     if (!staged.length) throw new Error('No mod files found to import.');
     for (const s of staged) {
-      if (s.rel.includes('..')) throw new Error('Refusing unsafe path ' + s.rel);
+      if (s.rel.split('/').includes('..')) throw new Error('Refusing unsafe path ' + s.rel);
     }
-    fs.rmSync(lib, { recursive: true, force: true });
-    for (const s of staged) {
-      const dest = path.join(lib, ...s.rel.split('/'));
-      fs.mkdirSync(path.dirname(dest), { recursive: true });
-      if (s.data) fs.writeFileSync(dest, s.data);
-      else fs.copyFileSync(s.from, dest);
-    }
-    this.log('info', 'Loaded ' + staged.length + ' file(s) into ' + id);
-    this.save();
-    return staged.length;
+    return staged;
   }
 
   mapLoose(name, sample = '') {
@@ -590,7 +600,19 @@ class CitizenManager {
     return r;
   }
 
-  /** Make a new graphics pack out of in-memory files. It starts switched off. */
+  /** Find a file by name under citizen (e.g. skydome.ytd). Returns its citizen-relative path or null. */
+  findInCitizen(fileName) {
+    const c = this.state.citizenPath;
+    if (!c || !fs.existsSync(c)) return null;
+    const want = fileName.toLowerCase();
+    for (const top of ['platform', 'common']) {
+      const hit = listFiles(path.join(c, top)).find((f) => path.basename(f).toLowerCase() === want);
+      if (hit) return top + '/' + hit;
+    }
+    return null;
+  }
+
+  /** Make a new graphics pack. files: { rel: string | Buffer | { from: absPath } }. It starts switched off. */
   createPack(name, files) {
     const entries = Object.entries(files || {});
     if (!entries.length) throw new Error('A pack needs at least one file.');
@@ -602,7 +624,8 @@ class CitizenManager {
     for (const [rel, data] of entries) {
       const dest = path.join(lib, ...norm(rel).split('/'));
       fs.mkdirSync(path.dirname(dest), { recursive: true });
-      fs.writeFileSync(dest, data);
+      if (data && typeof data === 'object' && data.from) fs.copyFileSync(data.from, dest);
+      else fs.writeFileSync(dest, data);
     }
     this.state.custom.push({ id, name: String(name || 'Custom pack').slice(0, 60), kind: 'pack', description: 'Graphics pack' });
     this.log('info', 'Created graphics pack "' + name + '" with ' + entries.length + ' file(s)');
@@ -659,6 +682,15 @@ class CitizenManager {
       return now.toString('utf8');
     }
     return fs.readFileSync(basePath, 'utf8');
+  }
+
+  /** A timecycle without the colour tint (what the tint is applied on), for previews. Read-only. */
+  tintBase(rel) {
+    const { rel: r, abs } = this.timecyclePath(rel);
+    const basePath = path.join(this.dir, 'colourbase', ...r.split('/'));
+    const base = this.state.colourBase[r];
+    if (base && fs.existsSync(basePath) && fs.existsSync(abs) && base.written === sha1(fs.readFileSync(abs))) return fs.readFileSync(basePath, 'utf8');
+    return fs.readFileSync(abs, 'utf8');
   }
 
   activateTimecycle(rel) {

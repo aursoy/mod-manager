@@ -12,7 +12,27 @@ const WORLD_KEYS = ['water', 'mountains', 'trees', 'bushes', 'props'];
 export const WORLD_LABEL = { water: 'Water', mountains: 'Black mountains', trees: 'Trees', bushes: 'Bushes', props: 'Props' };
 const GRADE_GROUPS = ['sky', 'sun', 'cloud', 'light', 'ambient', 'fog'];
 
-export const emptySpec = () => ({ name: '', mood: null, sky: null, grade: null, world: {}, fps: 0, constant: false });
+export const emptySpec = () => ({ name: '', mood: null, sky: null, skyImage: null, grade: null, world: {}, adjust: {}, fps: 0, constant: false });
+
+// "add stars", "bigger moon", "no fog"... Each target is found by tag name in the
+// timecycle; `amount` values (intensity, density...) or `size` values are scaled.
+export const ADJUST = {
+  stars: { label: 'Stars', words: /\b(stars?|starfield|starry)\b/, tags: /star(?!t)/ },
+  moon: { label: 'Moon', words: /\bmoon\b/, tags: /moon/ },
+  sun: { label: 'Sun', words: /\bsun\b/, tags: /sun/ },
+  clouds: { label: 'Clouds', words: /\bclouds?\b/, tags: /cloud/ },
+  fog: { label: 'Fog', words: /\b(fog|haze|mist)\b/, tags: /fog|haze/ },
+  bloom: { label: 'Glow', words: /\b(bloom|glow)\b/, tags: /bloom/ },
+};
+const ADJUST_OPS = ['more', 'less', 'none', 'bigger', 'smaller'];
+const AMOUNT_TAG = /(iten|inten|dens|alpha|opacity|amount|bright|mult|strength|visib)/;
+const SIZE_TAG = /(size|scale|radius)/;
+const VERB = [
+  ['bigger', /\b(bigger|larger|huge|giant|massive)\b/],
+  ['smaller', /\b(smaller|tiny|little)\b/],
+  ['less', /\b(less|fewer|dimmer|weaker|lower|reduce|softer|subtler)\b/],
+  ['more', /\b(more|add|brighter|stronger|extra|lots of|increase|have|with|show|visible|bright)\b/],
+];
 
 // ---------- moods ----------
 // Each mood is a "midday" sky palette plus an optional grade. `constant` keeps the
@@ -40,6 +60,8 @@ const COLOURS = {
 };
 
 export const EXAMPLES = [
+  'Use my picture as the actual sky',
+  'Add more stars and a bigger moon',
   'Sunset sky, no water, FPS boost',
   'Neon cyberpunk night with no trees or bushes',
   'Realistic colours, keep water, remove black mountains',
@@ -125,9 +147,22 @@ export function parsePrompt(text) {
   if (nm) patch.name = nm[1].trim();
   const t = (nm ? raw.replace(nm[0], ' ') : raw).toLowerCase();
 
-  // world switches, clause by clause so "no trees, have bushes" works
+  // world switches and adjustments, clause by clause so "no trees, have bushes" works
   const clauses = t.split(/[,;.\n]|\b(?:and|or|but|also|then|plus)\b/).map((c) => c.trim()).filter(Boolean);
   let last = null;
+  let lastOp = null;
+  const positive = [];
+  patch.adjust = {};
+  for (const c of clauses) {
+    const neg = NEG.test(c);
+    if (!neg) positive.push(c);
+    let op = neg ? 'none' : (VERB.find(([, re]) => re.test(c)) || [])[0] || null;
+    if (!op && c.split(/\s+/).length <= 2 && lastOp) op = lastOp;
+    for (const [k, a] of Object.entries(ADJUST)) if (op && a.words.test(c)) patch.adjust[k] = op;
+    lastOp = op;
+  }
+  if (!Object.keys(patch.adjust).length) delete patch.adjust;
+  const tPos = positive.join(', ');
   for (const c of clauses) {
     const words = c.split(/\s+/).length;
     let pol = NEG.test(c) ? 'remove' : POS.test(c) ? 'keep' : null;
@@ -149,7 +184,12 @@ export function parsePrompt(text) {
   let strengthMul = 1;
   if (/\b(slight(ly)?|subtle|a (little|bit)|gentle)\b/.test(t)) strengthMul = 0.5;
   else if (/\b(very|super|extreme(ly)?|heavy|strong(ly)?|intense|max)\b/.test(t)) strengthMul = 1.4;
-  const moodHit = Object.entries(MOODS).find(([, m]) => m.words.test(t));
+  // the mood named first wins ("foggy morning" is foggy, not sunrise)
+  const moodHit = Object.entries(MOODS)
+    .map(([id, m]) => [id, m, tPos.search(m.words)])
+    .filter((x) => x[2] >= 0)
+    .sort((x, y) => x[2] - y[2])
+    .map(([id, m]) => [id, m])[0];
   if (moodHit) {
     const [id, m] = moodHit;
     patch.mood = id;
@@ -182,6 +222,11 @@ export function parsePrompt(text) {
   if (patch.grade && !Object.keys(patch.grade).length) delete patch.grade;
 
   if (/\b(always|all day|forever|permanent(ly)?|constant(ly)?|24\/?7)\b/.test(t)) patch.constant = true;
+
+  // what an attached image is for: the sky texture itself, or only its colours
+  if (/\b(colou?rs? only|only the colou?rs|just the colou?rs|palette only|just a palette)\b/.test(t)) patch.imageUse = 'colours';
+  else if (/\b(actual|real|whole|literal(ly)?|full)\s+sky\b|\bsky\s*(box|texture|dome|image|picture)\b|\b(image|picture|photo|pic)\s+(as|for|in)\s+(the\s+|my\s+|a\s+)?sky\b|\bas\s+(the|my|a)\s+sky\b/.test(t)) patch.imageUse = 'texture';
+  if (/\b(all day|daytime|day and night|day too|always|24\/?7)\b/.test(t)) patch.imageAllDay = true;
   return patch;
 }
 
@@ -193,7 +238,9 @@ export function mergeSpec(base, patch) {
   if (patch.sky) out.sky = { ...patch.sky };
   if (patch.constant != null) out.constant = patch.constant;
   if (patch.fps != null) out.fps = patch.fps;
+  if (patch.skyImage !== undefined) out.skyImage = patch.skyImage;
   out.world = { ...(out.world || {}), ...(patch.world || {}) };
+  out.adjust = { ...(out.adjust || {}), ...(patch.adjust || {}) };
   if (patch.grade) {
     const a = out.grade || {};
     const b = patch.grade;
@@ -232,6 +279,10 @@ export function validateSpec(raw) {
   }
   if (Number.isFinite(+raw.fps)) spec.fps = Math.max(0, Math.min(3, Math.round(+raw.fps)));
   spec.constant = raw.constant === true;
+  if (raw.adjust && typeof raw.adjust === 'object') {
+    for (const k of Object.keys(ADJUST)) if (ADJUST_OPS.includes(raw.adjust[k])) spec.adjust[k] = raw.adjust[k];
+  }
+  if (raw.skyImage && typeof raw.skyImage === 'object') spec.skyImage = { allDay: raw.skyImage.allDay === true };
   return spec;
 }
 
@@ -245,7 +296,9 @@ Schema:
   "grade": null | { "tint": "#rrggbb", "strength": 0..1, "brightness": -1..1, "saturation": 0..2 },
   "world": { "water"?: "remove"|"keep", "mountains"?: "remove"|"keep", "trees"?: "remove"|"keep", "bushes"?: "remove"|"keep", "props"?: "remove"|"keep" },
   "fps": 0..3,
-  "constant": boolean
+  "constant": boolean,
+  "adjust": { "stars"?: A, "moon"?: A, "sun"?: A, "clouds"?: A, "fog"?: A, "bloom"?: A }   where A is "more"|"less"|"none"|"bigger"|"smaller",
+  "skyImage": null | { "allDay": boolean }
 }
 
 Rules:
@@ -254,6 +307,8 @@ Rules:
 - "world" only lists things the player mentioned. "remove" = no water / no trees etc, "keep" = have them.
 - "fps": 0 = not asked, 1 = light boost, 2 = boost, 3 = maximum performance.
 - "constant": true only when the look should stay the same all day and night.
+- "adjust": only things the player asked to change ("add stars" = stars more, "bigger moon" = moon bigger, "no fog" = fog none).
+- "skyImage": when an image is attached and the player wants it to BE the sky (the default when an image is attached), set it; "allDay": true only if they want to see the picture in the daytime too. Set null if they only want the image's colours.
 - Never invent fields. Colours are always 7-character hex strings.`;
 
 /** Pulls the JSON object out of a model reply, tolerating a stray fence or sentence. */
@@ -317,6 +372,9 @@ export function buildPack(spec, files) {
       return { r: t[0], g: t[1], b: t[2], strength: g.tint ? (g.strength ?? 0.2) : 0, brightness: g.brightness || 0, saturation: g.saturation ?? 1, groups: GRADE_GROUPS };
     })() : null;
 
+  const adjHits = {};
+  const adjust = Object.entries(spec.adjust || {}).filter(([k, op]) => ADJUST[k] && ADJUST_OPS.includes(op));
+  let starTags = 0;
   for (const [rel, xml] of Object.entries(files)) {
     const model = parse(xml);
     for (const sec of model.sections) {
@@ -346,6 +404,39 @@ export function buildPack(spec, files) {
         }
       }
     }
+    for (const [k, op] of adjust) {
+      const sizeOp = op === 'bigger' || op === 'smaller';
+      for (const sec of model.sections) {
+        for (const p of sec.scalars) {
+          const n = p.name.toLowerCase();
+          if (!ADJUST[k].tags.test(n)) continue;
+          if (sizeOp ? !SIZE_TAG.test(n) : (!AMOUNT_TAG.test(n) && k !== 'stars')) continue;
+          const f = { more: 1.6, less: 0.5, none: 0, bigger: 1.6, smaller: 0.6 }[op];
+          const allZero = p.values.every((v) => v === 0);
+          p.values = p.values.map((v) => (op === 'more' && allZero ? 1 : v * f));
+          (adjHits[k] = adjHits[k] || new Set()).add(p.name);
+        }
+      }
+    }
+    // The picture on the sky texture is blended in by the star intensity. Make sure it shows
+    // at night, and with allDay keep it on and darken the day sky so it is not washed out.
+    if (spec.skyImage) {
+      for (const sec of model.sections) {
+        for (const p of sec.scalars) {
+          if (!/star(?!t)/i.test(p.name) || (spec.adjust && spec.adjust.stars === 'none')) continue;
+          const hrs = keyHours(p.values.length);
+          const top = Math.max(1, ...p.values);
+          p.values = p.values.map((v, i) => (spec.skyImage.allDay || daylight(hrs[i]) < 0.3 ? Math.max(v, top) : v));
+          starTags++;
+        }
+        if (spec.skyImage.allDay) {
+          for (const col of sec.colours) {
+            if (col.role !== 'zenith' && col.role !== 'horizon' && col.role !== 'azEast' && col.role !== 'azWest') continue;
+            for (let i = 0; i < col.r.values.length; i++) setColour(col, i, [col.r.values[i], col.g.values[i], col.b.values[i]].map((x) => x * 0.25));
+          }
+        }
+      }
+    }
     const next = serialize(model);
     if (next !== xml) out[rel] = next;
   }
@@ -361,6 +452,19 @@ export function buildPack(spec, files) {
         ? `FPS boost level ${spec.fps}: lowered ${hit.map(([k]) => k.toLowerCase()).join(', ')}`
         : 'FPS boost: none of the usual performance values (LOD, shadow distance, ambient occlusion, light rays, motion blur) were found in these files, so nothing was lowered.',
     });
+  }
+
+  for (const [k, op] of adjust) {
+    const hit = adjHits[k];
+    const verb = { more: 'more', less: 'less', none: 'off', bigger: 'bigger', smaller: 'smaller' }[op];
+    report.push(hit
+      ? { ok: true, text: `${ADJUST[k].label}: ${verb} (${[...hit].slice(0, 3).join(', ')}${hit.size > 3 ? ' +' + (hit.size - 3) : ''})` }
+      : { ok: false, text: `${ADJUST[k].label}: these timecycle files have no ${ADJUST[k].label.toLowerCase()} ${op === 'bigger' || op === 'smaller' ? 'size' : 'strength'} values, so nothing changed.` });
+  }
+  if (spec.skyImage) {
+    report.push(starTags
+      ? { ok: true, text: spec.skyImage.allDay ? 'Sky picture set to show all day (experimental: the day sky is darkened so the picture shows through)' : 'Sky picture fades in at night with the stars' }
+      : { ok: false, text: 'No star values in these timecycles, so the game decides when the sky picture shows.' });
   }
 
   const tweaks = {};
@@ -380,18 +484,21 @@ export function describeSpec(spec) {
   if (spec.grade) chips.push('Colour grade');
   if (spec.constant) chips.push('Same all day');
   for (const k of WORLD_KEYS) if (spec.world && spec.world[k]) chips.push((spec.world[k] === 'remove' ? 'No ' : 'Keep ') + WORLD_LABEL[k].toLowerCase());
+  for (const [k, op] of Object.entries(spec.adjust || {})) if (ADJUST[k]) chips.push(ADJUST[k].label + ': ' + (op === 'none' ? 'off' : op));
+  if (spec.skyImage) chips.push(spec.skyImage.allDay ? 'Picture sky (all day)' : 'Picture sky');
   if (spec.fps) chips.push('FPS boost ' + spec.fps);
   return chips;
 }
 
 export function isEmptySpec(spec) {
-  return !spec.sky && !spec.grade && !spec.fps && !Object.keys(spec.world || {}).length;
+  return !spec.sky && !spec.skyImage && !spec.grade && !spec.fps && !Object.keys(spec.world || {}).length && !Object.keys(spec.adjust || {}).length;
 }
 
 export function packName(spec) {
   if (spec.name) return spec.name;
   const bits = [];
   if (spec.mood && MOODS[spec.mood]) bits.push(MOODS[spec.mood].label);
+  else if (spec.skyImage) bits.push('Picture sky');
   else if (spec.sky) bits.push('Custom sky');
   if (spec.fps) bits.push('FPS');
   if (!bits.length) bits.push('Custom');

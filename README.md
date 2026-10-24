@@ -16,9 +16,9 @@ Or double-click `start.bat`.
 **Manage**
 - **Dashboard**: link `FiveM.app/citizen` by dropping it in or using auto-detect. Shows stats, activity and a Launch FiveM button.
 - **Graphics**: three tabs.
-  - **Colour grade**: install graphics packs from a folder or `.zip`, and toggle or remove them. Colour grading tints every `*_col_r/g/b` value in the timecycle XMLs. Applying a grade again replaces the last one instead of stacking on it.
-  - **Timecycle editor**: open any timecycle XML from your citizen folder (or from disk) and see it as a live preview: sky, sun, moon, clouds, fog and a skyline at any time of day, with a play button for a full day. Every colour and number in the file is editable, for one keyframe or the whole day, and there is a quick tint / brightness / saturation grade. Untouched values are saved byte-for-byte. Save to FiveM (backed up), save as a graphics pack, or export the XML.
-  - **Pack AI**: describe the pack you want and attach an image to use as the sky. See below.
+  - **My packs**: add packs (drop a folder or `.zip`), switch them on and off, delete them. **Colour tint** tints every timecycle in your game, with a live preview of the result. Applying again replaces the last tint; Reset tint removes it.
+  - **Create with AI**: describe the pack you want. Add a picture to make it your sky, or a pack folder to build on. See below.
+  - **Advanced editor**: open any timecycle XML from your game (or your computer) with a live day/night preview, and change every colour and value by hand, for one time of day or the whole day. Untouched values are saved exactly as they were. Save to game (backed up), save as a pack, or export. For files FiveM does not read (not named `w_*.xml`), "Use for sunny weather" copies it over the sunny and clear weather.
 - **World**:
   - Water: removed / visible.
   - Black mountains, Trees, Bushes, Props: load the removal files from your pack once, then switch each between removed and visible.
@@ -46,24 +46,27 @@ Or double-click `start.bat`.
 - the Discord desktop app running
 - a free Application ID from https://discord.com/developers/applications (New Application, then copy the Application ID)
 
-## Pack AI
+## Pack AI (Graphics → Create with AI)
 
-Type what you want, optionally with an image:
+Type what you want, and optionally add a picture and/or a pack folder:
 
-> Use this image as the sky, no water, no black mountains, no trees, have props, and an FPS boost.
+> Use my picture as the actual sky, add stars, bigger moon, no water, FPS boost.
 
-- **Image as sky**: the top of the picture becomes the zenith, the bottom the horizon, the brightest spot the sun, plus cloud and fog colours. They are written into every weather timecycle and follow day and night (say "all day" to keep the look 24/7).
-- **Moods and colours**: sunny, sunset, sunrise, night, overcast, foggy, stormy, neon/cyberpunk, vaporwave, winter, desert, apocalypse, cinematic, realistic, or any colour ("purple sky", "red tint"). Words like "darker", "vibrant", "desaturated" adjust the grade.
-- **World**: "no water", "no black mountains", "no trees", "no bushes", "no props" and the matching "have ..." switch the World tweaks. Water works out of the box. Black mountains, trees, bushes and props only switch if you have loaded their removal files on the World page once; otherwise the pack still installs and tells you which ones were skipped.
-- **FPS boost** (light / boost / max): lowers LOD distance, shadow distance, ambient occlusion, light rays and motion blur in the timecycles, only where those values exist in your files. The result says exactly what it changed or that it found nothing.
-- Chat on to refine ("now make it darker"), preview with the time slider, then **Install pack**. It is added to Graphics packs, every file is backed up, and you can fine-tune it in the editor first.
-- It starts from your stock files, so reinstalling never stacks on an earlier AI pack.
+- **A picture as the sky**: GTA V paints the daytime sky from colours, but the night sky is a picture: the `starfield` texture inside `skydome.ytd` (the same file sky mods replace). Your picture is written into that texture, in its original size and format. It shows at night with the stars; say "all day" to keep it on in the daytime too (experimental: the day sky is darkened so the picture shows through). The sky colours are also taken from your picture. `skydome.ytd` is taken from the pack you added, then your citizen folder, then your GTA V install (`x64a.rpf`, unlocked like other encrypted RPFs); if none is found you are asked to pick it.
+- **A pack folder or .zip** (folder button, or drop it on the chat): the AI builds on it. The new pack keeps every file of the original; the original folder is never changed.
+- **Things you can ask for**: stars, moon, sun, clouds, fog, glow with more / less / no / bigger / smaller; moods (sunny, sunset, sunrise, night, overcast, foggy, stormy, neon/cyberpunk, vaporwave, winter, desert, apocalypse, cinematic, realistic); colours ("purple sky", "red tint"); darker / brighter / more vibrant; "no water", "no black mountains", "no trees", "no bushes", "no props" and the matching "have ..."; FPS boost (light / boost / max).
+- Every answer says exactly what changed, and plainly when something could not be done (for example a timecycle with no moon size value, or trees whose removal files are not loaded yet).
+- Chat on to refine it ("now make it darker"), drag the time slider to check day and night, then **Install pack**. It appears under My packs and can be switched off any time. **Fine-tune** opens the result in the Advanced editor.
+- Water works out of the box. Black mountains, trees, bushes and props switch only after you load their removal files on the World page once.
+- FPS boost lowers LOD distance, shadow distance, ambient occlusion, light rays and motion blur, only where those values exist in the files.
 
-It works offline with a built-in reader. Add an Anthropic API key in Settings → Pack AI key and Claude writes the pack spec instead (it can look at the image and understand longer requests). The key is kept on your PC and only sent to Anthropic when you press Generate.
+It works offline with a built-in reader. Add an Anthropic API key in Settings → Pack AI key and Claude reads your requests (and looks at your picture) instead. The key stays on your PC and is only sent to Anthropic when you press Create.
 
 ## Limits
 
-- The Pack AI only edits colour and number values. It does not repaint sky textures, and it cannot create the files that remove trees, bushes, props or black mountains.
+- The Pack AI cannot create the files that remove trees, bushes, props or black mountains; it switches them once you have loaded them.
+- When `skydome.ytd` did not come from a pack, it is installed to `citizen/platform/textures/skydome.ytd`. If your FiveM build does not pick it up there, use the file from the pack (it then keeps the pack's own path).
+- Sky textures in BC7 or ATI format cannot be written yet; the sky colours still change.
 - The editor's clock times for the 9 daily keyframes are approximate and only drive the preview. The values and their order in your file are never reordered.
 
 - **Encrypted (NG/AES) RPFs** open after a one-time unlock: the app finds the archive key inside your own `GTA5.exe` (read-only, about 6 s) and caches it. Settings → Encrypted RPFs, or the prompt that appears when you open an encrypted pack. Edited archives are always saved as OPEN. The decryption is ported from [CodeWalker](https://github.com/dexyfex/CodeWalker) (MIT); see `vendor/codewalker/NOTICE.txt`.
@@ -74,7 +77,7 @@ It works offline with a built-in reader. Add an Anthropic API key in Settings �
 ## Dev
 
 ```
-npm test                      # 29 tests: RPF, textures, DXT, citizen, AWC, Sound Lab, mods, cache, presets, timecycle editor, Pack AI
+npm test                      # 39 tests: RPF, textures, DXT, citizen, AWC, Sound Lab, mods, cache, presets, timecycle editor, Pack AI, sky texture, dropped packs
 node scripts/make-sample.mjs  # builds samples/ (test pistol + test sound pack)
 node scripts/rpf-ls.js x.rpf  # list an archive's contents, including nested archives
 ```

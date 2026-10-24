@@ -125,77 +125,95 @@
         <div class="page-head">
           <div>
             <p class="eyebrow">Graphics</p>
-            <h2 class="headline">Build your <span class="outline">look.</span></h2>
+            <h2 class="headline">Make it <span class="outline">look good.</span></h2>
           </div>
           <div class="head-actions">
             <div class="seg gfx-tabs" id="gfx-tabs">
-              <button data-pane="grade" class="on">Colour grade</button>
-              <button data-pane="editor">Timecycle editor</button>
-              <button data-pane="ai">Pack AI</button>
+              <button data-pane="packs" class="on"><i data-icon="package"></i>My packs</button>
+              <button data-pane="ai"><i data-icon="sparkles"></i>Create with AI</button>
+              <button data-pane="editor"><i data-icon="sliders"></i>Advanced editor</button>
               <i class="seg-thumb"></i>
             </div>
           </div>
         </div>
+        <p class="gfx-lead" id="gfx-lead"></p>
 
-        <div class="gfx-pane" data-pane="grade">
+        <!-- My packs -->
+        <div class="gfx-pane" data-pane="packs">
           <div class="grid gfx-grid">
-            <div class="card grade">
-              <!-- Timecycle Cycler -->
-              <div class="tc-cycler" id="tc-cycler">
-                <div class="tc-header">
-                  <span class="tc-badge"><i data-icon="file"></i> Timecycle XML</span>
-                  <button class="tc-act-btn" id="tc-activate-btn" title="Sets this timecycle as w_extrasunny.xml and w_clear.xml in FiveM"><i data-icon="zap"></i> Set as FiveM Weather</button>
-                </div>
-                <div class="tc-controls">
-                  <button class="btn icon-btn sm" id="tc-prev" title="Previous XML file"><i data-icon="chevron-left"></i></button>
-                  <div class="tc-select-wrap">
-                    <select id="tc-select" class="tc-select">
-                      <option value="__all__">All timecycle files</option>
-                    </select>
-                    <div class="tc-meta" id="tc-meta">Select a timecycle file to inspect and grade</div>
-                  </div>
-                  <button class="btn icon-btn sm" id="tc-next" title="Next XML file"><i data-icon="chevron-right"></i></button>
-                </div>
-              </div>
+            <div class="card packs">
+              <div class="card-title"><h3>Your graphics packs</h3><small>Switch packs on and off. Every file they change is backed up first, so switching a pack off puts your game back.</small></div>
+              <button class="mini-drop" id="pack-drop"><i data-icon="upload"></i><div><b>Add a pack</b><small>Drop a pack folder or .zip anywhere on this page, or click to pick a folder.</small></div></button>
+              <ul class="list" id="pack-list"></ul>
+            </div>
 
-              <div class="grade-preview" id="grade-preview">
-                <div class="gp-sky"></div><div class="gp-sun"></div><div class="gp-hills"></div><div class="gp-city"></div>
-                <div class="gp-label"><b id="grade-hex">#FFFFFF</b><small id="grade-files">0 timecycle files</small></div>
-              </div>
+            <div class="card tint">
+              <div class="card-title"><h3>Colour tint</h3><small>Tints every timecycle in your game at once. Applying again replaces the last tint, Reset removes it.</small></div>
+              <div class="tint-view"><canvas id="tint-canvas"></canvas><span class="tce-tag" id="tint-tag">Preview · 12:00</span><div class="tce-empty hidden" id="tint-empty"><i data-icon="palette"></i><b>No timecycle to preview</b><small>Link your citizen folder and switch on a pack to preview the tint.</small></div></div>
+              <div class="tce-time"><i data-icon="sun"></i><input type="range" id="tint-hour" min="0" max="24" step="0.05" value="12" /><b class="mono" id="tint-hour-label">12:00</b></div>
               <div class="swatches" id="swatches"></div>
               <div class="ctrl-row">
-                <label class="field colour-field"><span>Custom</span><input type="color" id="grade-color" value="#ffffff" /></label>
+                <label class="field colour-field"><span>Pick a colour</span><input type="color" id="grade-color" value="#ffffff" /></label>
                 <div class="slider-field"><span>Strength <b id="strength-val">50%</b></span><input type="range" id="grade-strength" min="0" max="100" value="50" /></div>
                 <div class="slider-field"><span>Brightness <b id="bright-val">0</b></span><input type="range" id="grade-bright" min="-100" max="100" value="0" /></div>
               </div>
+              <p class="label">What to tint</p>
               <div class="chips" id="grade-groups">
                 <button class="chip on" data-group="sky">Sky</button>
                 <button class="chip on" data-group="light">Sun &amp; light</button>
                 <button class="chip on" data-group="fog">Fog</button>
-                <button class="chip on" data-group="ambient">Ambient</button>
-                <button class="chip on" data-group="postfx">Post FX</button>
+                <button class="chip on" data-group="ambient">Shadows &amp; ambient</button>
+                <button class="chip on" data-group="postfx">Post effects</button>
               </div>
               <div class="row-end">
-                <button class="btn ghost" id="grade-reset"><i data-icon="undo"></i>Reset</button>
-                <button class="btn primary" id="grade-apply"><i data-icon="check"></i>Apply grade</button>
+                <button class="btn ghost" id="grade-reset"><i data-icon="undo"></i>Reset tint</button>
+                <button class="btn primary" id="grade-apply"><i data-icon="check"></i>Apply tint</button>
               </div>
-            </div>
-
-            <div class="card packs">
-              <h3>Graphics packs</h3>
-              <div class="mini-drop" id="pack-drop"><i data-icon="upload"></i><div><b>Drop a pack</b><small>Folder or .zip containing citizen/</small></div></div>
-              <ul class="list" id="pack-list"></ul>
             </div>
           </div>
         </div>
 
-        <!-- Timecycle editor -->
+        <!-- Create with AI -->
+        <div class="gfx-pane hidden" data-pane="ai">
+          <div class="aip">
+            <div class="card aip-chat">
+              <div class="aip-head">
+                <div><h3>Pack AI</h3><small id="aip-engine" class="mono">Built-in</small></div>
+                <button class="btn ghost sm" id="aip-reset"><i data-icon="undo"></i>Start over</button>
+              </div>
+              <div class="aip-log" id="aip-log"></div>
+              <div class="aip-chips" id="aip-examples"></div>
+              <div class="aip-attached hidden" id="aip-pack"><span class="aip-ic"><i data-icon="folder"></i></span><div class="grow"><b id="aip-pack-name">pack</b><small id="aip-pack-meta"></small></div><button class="icon-btn" id="aip-pack-clear" title="Remove pack"><i data-icon="x"></i></button></div>
+              <div class="aip-attached hidden" id="aip-attached"><img id="aip-thumb" alt="" /><div class="grow"><b id="aip-img-name">image</b><small id="aip-img-meta">Becomes your sky</small></div><button class="icon-btn" id="aip-img-clear" title="Remove picture"><i data-icon="x"></i></button></div>
+              <div class="aip-input">
+                <button class="icon-btn" id="aip-attach" title="Add a picture for the sky"><i data-icon="image"></i></button>
+                <button class="icon-btn" id="aip-folder" title="Add a pack folder to build on (or drop a .zip)"><i data-icon="folder"></i></button>
+                <textarea id="aip-text" rows="2" placeholder="Say what you want. e.g. “Use my picture as the sky, add stars, no water.”"></textarea>
+                <button class="btn primary" id="aip-send"><i data-icon="send"></i>Create</button>
+              </div>
+            </div>
+
+            <div class="card aip-result">
+              <div class="card-title row-between"><h3>Preview</h3><small id="aip-status">Nothing made yet</small></div>
+              <div class="aip-view"><canvas id="aip-canvas"></canvas><span class="tce-tag" id="aip-tag">12:00</span><div class="tce-empty" id="aip-empty"><i data-icon="sparkles"></i><b>Your pack shows up here</b><small>Describe it on the left. Drag the time slider to see day and night.</small></div></div>
+              <div class="tce-time"><button class="icon-btn" id="aip-play" title="Play a day"><i data-icon="play"></i></button><input type="range" id="aip-hour" min="0" max="24" step="0.05" value="12" /><b class="mono" id="aip-hour-label">12:00</b></div>
+              <div class="aip-spec" id="aip-spec"></div>
+              <ul class="aip-report" id="aip-report"></ul>
+              <div class="row-end">
+                <button class="btn ghost" id="aip-edit" disabled><i data-icon="sliders"></i>Fine-tune</button>
+                <button class="btn primary" id="aip-install" disabled><i data-icon="zap"></i>Install pack</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Advanced editor -->
         <div class="gfx-pane hidden" data-pane="editor">
           <div class="tce">
             <div class="card tce-main">
               <div class="tce-top">
                 <select id="tce-file" class="tc-select" title="Timecycle file"></select>
-                <select id="tce-section" class="tc-select" title="Weather / region"></select>
+                <select id="tce-section" class="tc-select" title="Weather"></select>
                 <button class="btn ghost sm" id="tce-open"><i data-icon="folder"></i>Open file</button>
               </div>
               <div class="tce-view">
@@ -210,7 +228,7 @@
               </div>
               <div class="tce-keys" id="tce-keys"></div>
               <div class="tce-quick">
-                <p class="label">Quick grade for this weather</p>
+                <p class="label">Quick colour change for this weather</p>
                 <div class="ctrl-row tight">
                   <label class="field colour-field"><span>Tint</span><input type="color" id="tce-tint" value="#ffa060" /></label>
                   <div class="slider-field"><span>Strength <b id="tce-tint-val">0%</b></span><input type="range" id="tce-tint-amt" min="0" max="100" value="0" /></div>
@@ -219,57 +237,27 @@
                   <div class="slider-field"><span>Brightness <b id="tce-bright-val">0</b></span><input type="range" id="tce-bright" min="-100" max="100" value="0" /></div>
                   <div class="slider-field"><span>Saturation <b id="tce-sat-val">100%</b></span><input type="range" id="tce-sat" min="0" max="200" value="100" /></div>
                 </div>
-                <div class="row-end tight"><button class="btn ghost sm" id="tce-quick-apply"><i data-icon="check"></i>Apply to colours</button></div>
+                <div class="row-end tight"><button class="btn ghost sm" id="tce-quick-apply"><i data-icon="check"></i>Apply</button></div>
               </div>
               <div class="tce-actions">
                 <span class="tag" id="tce-dirty">Unchanged</span>
                 <div class="grow"></div>
-                <button class="btn ghost sm" id="tce-revert"><i data-icon="undo"></i>Revert</button>
+                <button class="btn ghost sm" id="tce-revert" title="Undo every change since you opened the file"><i data-icon="undo"></i>Undo all</button>
+                <button class="btn ghost sm" id="tce-weather" title="FiveM only uses w_*.xml files. This copies the file over the sunny and clear weather."><i data-icon="sun"></i>Use for sunny weather</button>
                 <button class="btn ghost sm" id="tce-export"><i data-icon="download"></i>Export</button>
                 <button class="btn ghost sm" id="tce-pack"><i data-icon="package"></i>Save as pack</button>
-                <button class="btn primary sm" id="tce-save"><i data-icon="save"></i>Save to FiveM</button>
+                <button class="btn primary sm" id="tce-save"><i data-icon="save"></i>Save to game</button>
               </div>
             </div>
 
             <div class="card tce-params">
               <div class="tce-params-head">
-                <label class="search"><i data-icon="search"></i><input type="text" id="tce-search" placeholder="Search values" /></label>
-                <div class="seg tce-mode" id="tce-mode"><button data-v="key" class="on">This time</button><button data-v="all">All day</button><i class="seg-thumb"></i></div>
+                <label class="search"><i data-icon="search"></i><input type="text" id="tce-search" placeholder="Search, e.g. zenith, fog, star" /></label>
+                <div class="seg tce-mode" id="tce-mode" title="Change only the selected time, or shift the whole day"><button data-v="key" class="on">This time</button><button data-v="all">Whole day</button><i class="seg-thumb"></i></div>
               </div>
               <div class="chips" id="tce-groups"></div>
               <p class="fine" id="tce-note"></p>
               <ul class="tce-list" id="tce-list"></ul>
-            </div>
-          </div>
-        </div>
-
-        <!-- Pack AI -->
-        <div class="gfx-pane hidden" data-pane="ai">
-          <div class="aip">
-            <div class="card aip-chat">
-              <div class="aip-head">
-                <div><h3>Pack AI</h3><small id="aip-engine" class="mono">Built-in</small></div>
-                <button class="btn ghost sm" id="aip-reset"><i data-icon="undo"></i>Start over</button>
-              </div>
-              <div class="aip-log" id="aip-log"></div>
-              <div class="aip-chips" id="aip-examples"></div>
-              <div class="aip-attached hidden" id="aip-attached"><img id="aip-thumb" alt="" /><div class="grow"><b id="aip-img-name">image</b><small>Used for the sky colours</small></div><button class="icon-btn" id="aip-img-clear" title="Remove image"><i data-icon="x"></i></button></div>
-              <div class="aip-input">
-                <button class="icon-btn" id="aip-attach" title="Attach an image"><i data-icon="image"></i></button>
-                <textarea id="aip-text" rows="2" placeholder="Describe the pack. e.g. “Use this image as the sky, no water, no black mountains, and an FPS boost.”"></textarea>
-                <button class="btn primary" id="aip-send"><i data-icon="sparkles"></i>Generate</button>
-              </div>
-            </div>
-
-            <div class="card aip-result">
-              <div class="aip-view"><canvas id="aip-canvas"></canvas><span class="tce-tag" id="aip-tag">12:00</span></div>
-              <div class="tce-time"><button class="icon-btn" id="aip-play" title="Play a day"><i data-icon="play"></i></button><input type="range" id="aip-hour" min="0" max="24" step="0.05" value="12" /><b class="mono" id="aip-hour-label">12:00</b></div>
-              <div class="aip-spec" id="aip-spec"></div>
-              <ul class="aip-report" id="aip-report"></ul>
-              <div class="row-end">
-                <button class="btn ghost" id="aip-edit" disabled><i data-icon="sliders"></i>Fine-tune in editor</button>
-                <button class="btn primary" id="aip-install" disabled><i data-icon="zap"></i>Install pack</button>
-              </div>
             </div>
           </div>
         </div>
