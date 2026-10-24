@@ -3,6 +3,8 @@ import { notify, initDrawer, settings as notifySettings } from './notify.js';
 import { initBackground, initInteractions, syncSeg, countUp, stagger, busy, fillRange, fxState } from './fx.js';
 import { initKeys } from './keys.js';
 import { initStudio, refreshStudio, handleDrop as studioDrop } from './tcstudio.js';
+import * as TC from './timecycle.js';
+import { drawScene } from './tcpreview.js';
 import { initPages, refreshMods, refreshPresets, refreshCache, refreshProfile, addModFiles } from './pages.js';
 
 // Gun/Sound labs pull in three.js. Load them dynamically so a missing
@@ -165,11 +167,14 @@ function initHome() {
   $$('[data-goto]').forEach((b) => (b.onclick = () => go(b.dataset.goto)));
 }
 
-// ---------- graphics ----------
+// ---------- graphics: packs and colour tint ----------
 const PRESETS = [
   ['Pure', '#ffffff'], ['Arctic', '#8fd3ff'], ['Cyan', '#00e5ff'], ['Violet', '#9b5cff'], ['Rose', '#ff5fa8'],
   ['Blood', '#ff2d2d'], ['Sunset', '#ff8a3d'], ['Gold', '#ffd24d'], ['Toxic', '#7dff3a'], ['Teal', '#22e3b2'],
 ];
+// Tint chips -> timecycle groups, for the preview only (the real tint runs in the main process).
+const TINT_GROUPS = { sky: ['sky', 'sun', 'cloud'], light: ['light'], fog: ['fog'], ambient: ['ambient'], postfx: ['post'] };
+const tint = { base: null, hour: 12 };
 
 function gradeOpts() {
   const hex = $('#grade-color').value;
@@ -184,55 +189,32 @@ function gradeOpts() {
 
 function paintPreview() {
   const o = gradeOpts();
-  const p = $('#grade-preview');
-  p.style.setProperty('--t', o.hex);
-  p.style.setProperty('--s', o.strength);
-  p.style.filter = `brightness(${1 + o.brightness * 0.5})`;
-  $('#grade-hex').textContent = o.hex.toUpperCase();
   $('#strength-val').textContent = Math.round(o.strength * 100) + '%';
   $('#bright-val').textContent = (o.brightness > 0 ? '+' : '') + Math.round(o.brightness * 100);
   $$('#swatches .sw').forEach((s) => s.classList.toggle('on', s.dataset.hex === o.hex));
+  $('#tint-hour-label').textContent = TC.hourLabel(tint.hour);
+  $('#tint-tag').textContent = 'Preview · ' + TC.hourLabel(tint.hour);
+  $('#tint-empty').classList.toggle('hidden', !!tint.base);
+  if (!tint.base || currentPage !== 'graphics') return;
+  const model = TC.parse(tint.base);
+  TC.gradeColours(model, { ...o, groups: o.groups.flatMap((g) => TINT_GROUPS[g] || []) });
+  const sec = model.sections.find((x) => /extrasunny|clear/i.test(x.label) && x.colours.length) || model.sections.find((x) => x.colours.length);
+  if (sec) drawScene($('#tint-canvas'), sec, tint.hour);
 }
 
-let tcScanItems = [];
-let tcCurrentIndex = 0;
-
-function updateTcMeta() {
-  const sel = $('#tc-select');
-  if (!sel) return;
-  const val = sel.value;
-  if (val === '__all__') {
-    $('#tc-meta').textContent = tcScanItems.length + ' file(s) loaded. Changes apply globally across all timecycles.';
-    $('#tc-activate-btn').style.display = 'none';
-    return;
-  }
-  const item = tcScanItems.find((x) => x.rel === val);
-  if (item) {
-    const cycleStr = item.cycles.length ? item.cycles.join(', ') : 'Custom';
-    $('#tc-meta').textContent = 'Cycle: ' + cycleStr + ' • ' + (item.isWeather ? 'Weather Timecycle' : 'Modifier');
-    $('#tc-activate-btn').style.display = 'inline-flex';
-    $('#tc-activate-btn').textContent = item.name === 'w_extrasunny.xml' ? 'Active in FiveM' : 'Set as FiveM Weather';
-  }
+async function loadTintBase() {
+  tint.base = null;
+  try {
+    const scan = await api.call('colour:scan');
+    const items = scan.items || [];
+    const it = items.find((i) => /^w_extrasunny/i.test(i.name)) || items.find((i) => i.isWeather) || items[0];
+    if (it) tint.base = await api.call('colour:base', it.rel);
+  } catch (e) { /* no citizen yet */ }
+  paintPreview();
 }
 
 async function refreshGraphics() {
-  const [scan, colour] = await Promise.all([api.call('colour:scan'), api.call('colour:state')]);
-  tcScanItems = scan.items || [];
-  $('#grade-files').textContent = scan.files.length + ' timecycle file' + (scan.files.length === 1 ? '' : 's');
-
-  const sel = $('#tc-select');
-  if (sel) {
-    const currentVal = sel.value || '__all__';
-    let optsHtml = '<option value="__all__">All timecycle files (' + scan.files.length + ')</option>';
-    for (const it of tcScanItems) {
-      const label = it.name + (it.cycles.length ? ' [' + it.cycles[0] + ']' : '');
-      optsHtml += '<option value="' + it.rel + '">' + esc(label) + '</option>';
-    }
-    sel.innerHTML = optsHtml;
-    if (tcScanItems.some((x) => x.rel === currentVal)) sel.value = currentVal;
-    else if (tcScanItems.length > 0) sel.value = tcScanItems[0].rel;
-    updateTcMeta();
-  }
+  const colour = await api.call('colour:state').catch(() => null);
   if (colour && !refreshGraphics.loaded) {
     $('#grade-color').value = colour.hex || '#ffffff';
     $('#grade-strength').value = Math.round(colour.strength * 100);
@@ -241,32 +223,32 @@ async function refreshGraphics() {
     $$('#pages input[type=range]').forEach(fillRange);
   }
   refreshGraphics.loaded = true;
-  paintPreview();
+  loadTintBase();
   const tweaks = await api.call('tweaks:list');
   const packs = tweaks.filter((t) => t.kind === 'pack');
   $('#pack-list').innerHTML = packs.length
-    ? packs.map((p) => `<li data-id="${p.id}"><span class="tag ${p.enabled ? 'solid' : ''}">${p.enabled ? 'Live' : 'Off'}</span><div class="grow"><b>${esc(p.name)}</b><small>${p.files.length} files</small></div>
-        <button class="switch ${p.enabled ? 'on' : ''}" data-act="toggle"><i></i></button><button class="icon-btn" data-act="remove" title="Remove">${icon('trash')}</button></li>`).join('')
-    : '<li class="empty">No packs yet. Drop one above.</li>';
+    ? packs.map((p) => `<li data-id="${p.id}"><span class="tag ${p.enabled ? 'solid' : ''}">${p.enabled ? 'On' : 'Off'}</span><div class="grow"><b>${esc(p.name)}</b><small>${p.files.length} file${p.files.length === 1 ? '' : 's'}${p.enabled ? ' · in your game now' : ''}</small></div>
+        <button class="switch ${p.enabled ? 'on' : ''}" data-act="toggle" title="${p.enabled ? 'Switch off' : 'Switch on'}"><i></i></button><button class="icon-btn" data-act="remove" title="Delete pack">${icon('trash')}</button></li>`).join('')
+    : '<li class="empty">No packs yet. Add one above, or make one in Create with AI.</li>';
   $$('#pack-list li[data-id]').forEach((li) => {
     const id = li.dataset.id;
     const p = packs.find((x) => x.id === id);
     $('[data-act=toggle]', li).onclick = () => toggleTweak(p, !p.enabled).then(refreshGraphics);
     $('[data-act=remove]', li).onclick = async () => {
-      if (!(await modal({ title: 'Remove "' + p.name + '"?', text: 'Its files are taken out of citizen and your originals are restored.', confirm: 'Remove', danger: true }))) return;
-      try { await api.call('tweaks:removeCustom', id); notify.success('Pack removed', p.name); refreshGraphics(); }
-      catch (e) { notify.error('Could not remove pack', e.message); }
+      if (!(await modal({ title: 'Delete "' + p.name + '"?', text: 'Its files are taken out of your game and your originals are put back.', confirm: 'Delete', danger: true }))) return;
+      try { await api.call('tweaks:removeCustom', id); notify.success('Pack deleted', p.name); refreshGraphics(); }
+      catch (e) { notify.error('Could not delete pack', e.message); }
     };
   });
 }
 
 async function installPack(sources) {
   const guess = sources[0].split(/[\\/]/).pop().replace(/\.zip$/i, '');
-  const name = await modal({ title: 'Install graphics pack', text: 'Give it a name. Files that it overwrites are backed up first.', confirm: 'Install', input: { label: 'Pack name', value: guess } });
+  const name = await modal({ title: 'Add graphics pack', text: 'Give it a name. It is switched on right away, and any file it replaces is backed up first.', confirm: 'Add pack', input: { label: 'Pack name', value: guess } });
   if (!name) return;
   try {
     const id = await notify.promise(api.call('tweaks:addCustom', name, sources, 'pack'), {
-      loading: 'Importing ' + name + '…', success: 'Pack imported', error: 'Import failed',
+      loading: 'Adding ' + name + '…', success: 'Pack added', error: 'Could not add pack',
     });
     const t = (await api.call('tweaks:list')).find((x) => x.id === id);
     await toggleTweak(t, true);
@@ -278,67 +260,31 @@ function initGraphics() {
   $('#swatches').innerHTML = PRESETS.map(([n, h]) => `<button class="sw" data-hex="${h}" data-tip="${n}" style="background:${h}"></button>`).join('');
   $$('#swatches .sw').forEach((s) => (s.onclick = () => { $('#grade-color').value = s.dataset.hex; paintPreview(); }));
   ['#grade-color', '#grade-strength', '#grade-bright'].forEach((s) => $(s).addEventListener('input', paintPreview));
-  $$('#grade-groups .chip').forEach((c) => (c.onclick = () => { c.classList.toggle('on'); }));
-
-  $('#tc-select')?.addEventListener('change', () => {
-    const sel = $('#tc-select');
-    const idx = tcScanItems.findIndex((x) => x.rel === sel.value);
-    if (idx >= 0) tcCurrentIndex = idx;
-    updateTcMeta();
-  });
-
-  $('#tc-prev')?.addEventListener('click', () => {
-    if (!tcScanItems.length) return;
-    tcCurrentIndex = (tcCurrentIndex - 1 + tcScanItems.length) % tcScanItems.length;
-    $('#tc-select').value = tcScanItems[tcCurrentIndex].rel;
-    updateTcMeta();
-  });
-
-  $('#tc-next')?.addEventListener('click', () => {
-    if (!tcScanItems.length) return;
-    tcCurrentIndex = (tcCurrentIndex + 1) % tcScanItems.length;
-    $('#tc-select').value = tcScanItems[tcCurrentIndex].rel;
-    updateTcMeta();
-  });
-
-  $('#tc-activate-btn')?.addEventListener('click', async () => {
-    const sel = $('#tc-select')?.value;
-    if (!sel || sel === '__all__') return notify.warning('Select a file', 'Pick a specific timecycle file first.');
-    try {
-      const r = await api.call('colour:activate', sel);
-      notify.success('FiveM Weather Activated', `${r.source} is now linked to w_extrasunny & w_clear!`);
-      refreshGraphics();
-    } catch (e) {
-      notify.error('Activation failed', e.message);
-    }
-  });
+  $$('#grade-groups .chip').forEach((c) => (c.onclick = () => { c.classList.toggle('on'); paintPreview(); }));
+  $('#tint-hour').addEventListener('input', (e) => { tint.hour = +e.target.value; paintPreview(); });
+  addEventListener('resize', () => { if (currentPage === 'graphics') paintPreview(); });
 
   $('#grade-apply').onclick = async (e) => {
     const btn = e.currentTarget;
     const o = gradeOpts();
-    if (!o.groups.length) return notify.warning('Pick at least one group', 'Choose which parts of the timecycle to tint.');
-    o.target = $('#tc-select')?.value || '__all__';
-    o.activateWeather = true; // Automatically sync changes to FiveM in-game weather
+    if (!o.groups.length) return notify.warning('Pick what to tint', 'Turn on at least one of Sky, Sun & light, Fog...');
     busy(btn, true);
     try {
       await notify.promise(api.call('colour:apply', o), {
-        loading: 'Grading timecycle...',
-        success: (r) => ({
-          title: 'Colour grade applied',
-          message: `${r.tags} colour values updated across ${r.files} file(s)` + (r.activated ? ' & active in FiveM weather!' : '. Restart FiveM to see it.')
-        }),
-        error: 'Grade failed',
+        loading: 'Tinting your timecycles…',
+        success: (r) => ({ title: 'Tint applied', message: `${r.tags} colour values in ${r.files} file(s). Restart FiveM to see it.` }),
+        error: 'Tint failed',
       });
-      refreshGraphics();
+      loadTintBase();
     } catch (err) { /* toast shown */ }
     busy(btn, false);
   };
   $('#grade-reset').onclick = async () => {
-    try { const n = await api.call('colour:reset'); notify.success('Colour reset', n + ' file(s) back to their pack colours.'); }
+    try { const n = await api.call('colour:reset'); notify.success('Tint removed', n + ' file(s) back to their pack colours.'); loadTintBase(); }
     catch (e) { notify.error('Reset failed', e.message); }
   };
   $('#pack-drop').onclick = async () => {
-    const dir = await api.call('pick:files', { directory: true, title: 'Select graphics pack folder' });
+    const dir = await api.call('pick:files', { directory: true, title: 'Select a graphics pack folder' });
     if (dir) installPack(dir);
   };
 }

@@ -31,6 +31,9 @@ ${colour('light_natural_amb_down_col', [0.3, 0.35, 0.45])}
       <ssao_inten>1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0</ssao_inten>
       <shadow_distance_mult>1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0</shadow_distance_mult>
       <light_ray_mult>0.8 0.8 0.8 0.8 0.8 0.8 0.8 0.8 0.8</light_ray_mult>
+      <sky_stars_iten>1.0 0.4 0.0 0.0 0.0 0.0 0.0 0.3 1.0</sky_stars_iten>
+      <sky_moon_iten>1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0</sky_moon_iten>
+      <fog_start>20 20 20 20 20 20 20 20 20</fog_start>
       <sky_sun_disc_size value="2.5"/>
   </cycle>`;
 }
@@ -44,4 +47,29 @@ ${names.map(cycle).join('\n')}
 `;
 }
 
-module.exports = { buildTimecycle };
+// Minimal gen8 texture dictionary (.ytd file bytes) with one DXT1 texture per name.
+function buildYtd(names, w = 64, h = 64) {
+  const zlib = require('zlib');
+  const sys = Buffer.alloc(0x2000);
+  const gfx = Buffer.alloc(0x4000);
+  const S = 0x50000000, G = 0x60000000;
+  sys.writeUInt32LE(S + 0x40, 0x30); sys.writeUInt16LE(names.length, 0x38); sys.writeUInt16LE(names.length, 0x3a);
+  const size = (w / 4) * (h / 4) * 8;
+  names.forEach((name, i) => {
+    const t = 0x100 + i * 0x100;
+    sys.writeUInt32LE(S + t, 0x40 + i * 8);
+    sys.writeUInt32LE(S + t + 0xc0, t + 0x28);
+    sys.writeUInt16LE(w, t + 0x50); sys.writeUInt16LE(h, t + 0x52); sys.writeUInt16LE(1, t + 0x54);
+    sys.writeUInt32LE(0x31545844, t + 0x58); sys[t + 0x5d] = 1;
+    sys.writeUInt32LE(G + i * size, t + 0x70);
+    sys.write(name + '\0', t + 0xc0, 'latin1');
+    gfx.fill(0x11 * (i + 1), i * size, (i + 1) * size);
+  });
+  const sysFlags = (1 << 27) | 4;
+  const gfxFlags = ((13 << 28) | (1 << 27) | 5) >>> 0;
+  const hdr = Buffer.alloc(16);
+  hdr.writeUInt32LE(0x37435352, 0); hdr.writeUInt32LE(13, 4); hdr.writeUInt32LE(sysFlags, 8); hdr.writeUInt32LE(gfxFlags, 12);
+  return Buffer.concat([hdr, zlib.deflateRawSync(Buffer.concat([sys, gfx]))]);
+}
+
+module.exports = { buildTimecycle, buildYtd };

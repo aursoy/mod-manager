@@ -9,6 +9,8 @@ const { DiscordRpc } = require('./src/core/discord');
 const extras = require('./src/core/extras');
 const rpf = require('./src/core/rpf');
 const { AiKey, askClaude } = require('./src/core/ai');
+const { describePack, editableTimecycles, createPackWithTweaks } = require('./src/core/gfxpack');
+const { YtdFile, skydomeFromGame, DEFAULT_REL: SKY_REL } = require('./src/core/skytex');
 const { GtaKeys, findAesKey, findGtaExes } = require('./src/core/ngcrypto');
 
 app.setName('Kt Mod Manager');
@@ -17,6 +19,8 @@ if (process.env.KT_USERDATA) app.setPath('userData', process.env.KT_USERDATA);
 let win;
 let mgr;
 let gun = null;
+let gfxPack = null; // pack dropped into the Pack AI: { info, staged }
+let sky = null;     // sky texture being replaced: { ytd, rel, label, out }
 const sounds = new SoundPack();
 const discord = new DiscordRpc();
 const startedAt = Date.now();
@@ -180,6 +184,7 @@ app.whenReady().then(() => {
   handle('colour:reset', () => mgr.resetColour());
   handle('colour:state', () => mgr.state.colour);
   handle('colour:activate', (rel) => mgr.activateTimecycle(rel));
+  handle('colour:base', (rel) => mgr.tintBase(rel));
 
   // ----- timecycle editor / graphics AI -----
   const aiKey = new AiKey(path.join(app.getPath('userData'), 'data', 'ai.json'));
@@ -202,29 +207,70 @@ app.whenReady().then(() => {
     fs.writeFileSync(r.filePath, xml);
     return r.filePath;
   });
-  // Files become a new pack (switched on), then each world switch is flipped if its files exist.
-  handle('pack:create', (name, files, tweaks = {}, opts = {}) => {
-    const id = Object.keys(files).length ? mgr.createPack(name, files) : null;
-    const applied = [];
-    const skipped = [];
-    let conflicts = [];
-    if (id && opts.enable !== false) {
-      const r = mgr.setTweak(id, true);
-      conflicts = r.conflicts;
-    }
-    for (const [tid, on] of Object.entries(tweaks)) {
-      try {
-        const r = mgr.setTweak(tid, on);
-        conflicts = conflicts.concat(r.conflicts);
-        applied.push(tid);
-      } catch (e) {
-        skipped.push({ id: tid, reason: e.message });
-      }
-    }
-    mgr.log('success', 'Installed AI pack "' + name + '"');
-    mgr.save();
-    return { id, applied, skipped, conflicts };
+  // ----- Pack AI: a dropped pack to build on, and the sky texture -----
+  handle('gfx:loadPack', (sources) => {
+    const staged = mgr.stageSources(sources);
+    const name = path.basename(sources[0]).replace(/\.zip$/i, '');
+    gfxPack = { staged, info: describePack(name, staged) };
+    sky = null;
+    return gfxPack.info;
   });
+  handle('gfx:clearPack', () => { gfxPack = null; sky = null; return true; });
+  handle('gfx:packTimecycles', () => (gfxPack ? editableTimecycles(gfxPack.staged, gfxPack.info) : null));
+  handle('sky:status', () => ({
+    inPack: !!(gfxPack && gfxPack.info.skydome),
+    inCitizen: !!mgr.findInCitizen('skydome.ytd'),
+    gameExe: findGtaExes()[0] || null,
+    loaded: sky ? { label: sky.label, rel: sky.rel, textures: sky.ytd.describe(), skyIndex: sky.ytd.skyIndex(), applied: !!sky.out } : null,
+  }));
+  // source: 'pack' | 'citizen' | 'game' | 'pick'
+  handle('sky:open', async (source) => {
+    let stored; let rel; let label;
+    if (source === 'pack') {
+      if (!gfxPack || !gfxPack.info.skydome) throw new Error('The loaded pack has no skydome.ytd.');
+      const s = gfxPack.staged.find((x) => x.rel === gfxPack.info.skydome);
+      stored = s.data ? Buffer.from(s.data) : fs.readFileSync(s.from);
+      rel = s.rel; label = gfxPack.info.name + ' / skydome.ytd';
+    } else if (source === 'citizen') {
+      rel = mgr.findInCitizen('skydome.ytd');
+      if (!rel) throw new Error('No skydome.ytd in your citizen folder.');
+      stored = fs.readFileSync(path.join(mgr.requireCitizen(), ...rel.split('/')));
+      label = 'citizen / ' + rel;
+    } else if (source === 'game') {
+      const exe = findGtaExes()[0];
+      if (!exe) throw new Error('GTA V was not found. Pick skydome.ytd yourself instead.');
+      const g = skydomeFromGame(path.dirname(exe));
+      stored = g.stored; rel = SKY_REL; label = 'GTA V / ' + g.path;
+    } else {
+      const r = await dialog.showOpenDialog(win, { title: 'Choose skydome.ytd', properties: ['openFile'], filters: [{ name: 'Texture dictionary', extensions: ['ytd'] }] });
+      if (r.canceled) return null;
+      stored = fs.readFileSync(r.filePaths[0]);
+      rel = SKY_REL; label = path.basename(r.filePaths[0]);
+    }
+    const ytd = new YtdFile(stored, label);
+    sky = { ytd, rel, label, out: null };
+    return { label, rel, textures: ytd.describe(), skyIndex: ytd.skyIndex() };
+  });
+  handle('sky:apply', (index, data) => {
+    if (!sky) throw new Error('Open a sky texture first.');
+    sky.out = sky.ytd.replace(index, Buffer.from(data));
+    return { bytes: sky.out.length, rel: sky.rel };
+  });
+  handle('sky:export', async () => {
+    if (!sky || !sky.out) throw new Error('Nothing to export yet.');
+    const r = await dialog.showSaveDialog(win, { title: 'Export sky texture', defaultPath: 'skydome.ytd', filters: [{ name: 'YTD', extensions: ['ytd'] }] });
+    if (r.canceled) return null;
+    fs.writeFileSync(r.filePath, sky.out);
+    return r.filePath;
+  });
+
+  // Files become a new pack (switched on), then each world switch is flipped if its files exist.
+  // opts.includePack: start from every file of the pack dropped into the chat. opts.includeSky: add the new sky texture.
+  handle('pack:create', (name, edits, tweaks = {}, opts = {}) => createPackWithTweaks(mgr, name, edits, tweaks, {
+    ...opts,
+    staged: opts.includePack && gfxPack ? gfxPack.staged : [],
+    extra: opts.includeSky && sky && sky.out ? { [sky.rel]: sky.out } : {},
+  }));
   const IMG_TYPES = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.bmp': 'image/bmp' };
   const readImage = (f) => {
     const type = IMG_TYPES[path.extname(f).toLowerCase()];

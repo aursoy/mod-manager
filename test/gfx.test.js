@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
-const { buildTimecycle } = require('./tc-fixture');
+const { buildTimecycle, buildYtd } = require('./tc-fixture');
 
 const tcP = import('../renderer/js/timecycle.js');
 const aiP = import('../renderer/js/gfxai.js');
@@ -283,4 +283,151 @@ test('ai: Claude request is shaped correctly and errors are readable', async () 
   await assert.rejects(askClaude({ key: 'k', system: '', prompt: 'p', image: { mediaType: 'text/html', data: 'x' }, fetchImpl: ok }), /cannot be sent/);
   const down = async () => { throw new Error('ENOTFOUND'); };
   await assert.rejects(askClaude({ key: 'k', system: '', prompt: 'p', fetchImpl: down }), /Could not reach/);
+});
+
+test('ai: "add stars, bigger moon, no fog" become adjustments; negated words are not moods', async () => {
+  const ai = await aiP;
+  let p = ai.parsePrompt('add stars, bigger moon, no fog');
+  assert.deepStrictEqual(p.adjust, { stars: 'more', moon: 'bigger', fog: 'none' });
+  assert.strictEqual(p.mood, undefined, '"no fog" must not pick the foggy mood');
+  p = ai.parsePrompt('no clouds and less glow');
+  assert.deepStrictEqual(p.adjust, { clouds: 'none', bloom: 'less' });
+  p = ai.parsePrompt('foggy morning');
+  assert.strictEqual(p.mood, 'foggy');
+});
+
+test('ai: image use is read from the prompt', async () => {
+  const ai = await aiP;
+  assert.strictEqual(ai.parsePrompt('use this image as the actual sky').imageUse, 'texture');
+  assert.strictEqual(ai.parsePrompt('put my picture in the sky').imageUse, 'texture');
+  assert.strictEqual(ai.parsePrompt('only the colours from the image').imageUse, 'colours');
+  assert.strictEqual(ai.parsePrompt('picture as the sky, all day').imageAllDay, true);
+});
+
+test('ai: adjustments scale only matching values and never fog_start', async () => {
+  const ai = await aiP;
+  const tc = await tcP;
+  const xml = buildTimecycle();
+  const res = ai.buildPack(ai.mergeSpec(ai.emptySpec(), ai.parsePrompt('more stars, bigger sun, no fog')), { a: xml });
+  const sec = tc.parse(res.files.a).sections[0];
+  const orig = tc.parse(xml).sections[0];
+  const val = (s, n) => s.scalars.find((p) => p.name === n).values;
+  assert.ok(val(sec, 'sky_stars_iten')[0] > val(orig, 'sky_stars_iten')[0]);
+  assert.ok(val(sec, 'sky_sun_disc_size')[0] > 2.5);
+  assert.deepStrictEqual(val(sec, 'fog_start'), val(orig, 'fog_start'), 'fog_start is a distance, not an amount');
+  assert.deepStrictEqual(val(sec, 'sky_moon_iten'), val(orig, 'sky_moon_iten'));
+  const fog = res.report.find((r) => r.text.startsWith('Fog'));
+  assert.strictEqual(fog.ok, false, 'reports plainly when nothing matched');
+});
+
+test('ai: sky picture keeps star intensity on at night, all-day mode darkens the day sky', async () => {
+  const ai = await aiP;
+  const tc = await tcP;
+  const xml = buildTimecycle();
+  const night = ai.buildPack({ ...ai.emptySpec(), skyImage: { allDay: false } }, { a: xml });
+  const s1 = tc.parse(night.files.a).sections[0];
+  const stars = s1.scalars.find((p) => p.name === 'sky_stars_iten').values;
+  assert.strictEqual(stars[0], 1); assert.strictEqual(stars[4], 0, 'noon stays without the picture');
+  const day = ai.buildPack({ ...ai.emptySpec(), skyImage: { allDay: true } }, { a: xml });
+  const s2 = tc.parse(day.files.a).sections[0];
+  assert.ok(s2.scalars.find((p) => p.name === 'sky_stars_iten').values.every((v) => v >= 1));
+  const z1 = tc.colourAt(tc.parse(xml).sections[0].colours.find((c) => c.role === 'zenith'), 4);
+  const z2 = tc.colourAt(s2.colours.find((c) => c.role === 'zenith'), 4);
+  assert.ok(tc.lum(z2) < tc.lum(z1) * 0.3);
+  assert.ok(day.report.some((r) => /all day/.test(r.text)));
+});
+
+test('ai: validateSpec keeps valid adjustments and the sky picture flag', async () => {
+  const ai = await aiP;
+  const s = ai.validateSpec({ adjust: { stars: 'more', moon: 'explode', hack: 'none' }, skyImage: { allDay: 'yes' } });
+  assert.deepStrictEqual(s.adjust, { stars: 'more' });
+  assert.deepStrictEqual(s.skyImage, { allDay: false });
+});
+
+const { YtdFile } = require('../src/core/skytex');
+const { describePack, editableTimecycles, mergeForPack, createPackWithTweaks } = require('../src/core/gfxpack');
+
+test('sky texture: finds the starfield, replaces it in place, and the result reopens', () => {
+  const ytd = new YtdFile(buildYtd(['moon', 'starfield']), 'skydome.ytd');
+  assert.strictEqual(ytd.textures.length, 2);
+  const i = ytd.skyIndex();
+  assert.strictEqual(ytd.textures[i].name, 'starfield');
+  const size = ytd.textures[i].dataSize;
+  assert.throws(() => ytd.replace(i, new Uint8Array(3)), /size mismatch/);
+  const out = ytd.replace(i, new Uint8Array(size).fill(0x5a));
+  const again = new YtdFile(out).describe(true);
+  assert.ok(again.find((t) => t.name === 'starfield').data.every((b) => b === 0x5a));
+  assert.ok(again.find((t) => t.name === 'moon').data.every((b) => b === 0x11), 'other textures untouched');
+});
+
+test('dropped pack: timecycles and skydome are found, new pack keeps every original file', () => {
+  const { m, cit } = makeCitizen();
+  const src = fs.mkdtempSync(path.join(os.tmpdir(), 'kt-drop-'));
+  const pack = path.join(src, 'CoolPack', 'citizen');
+  fs.mkdirSync(path.join(pack, 'common', 'data', 'timecycle'), { recursive: true });
+  fs.mkdirSync(path.join(pack, 'platform', 'textures'), { recursive: true });
+  const w = buildTimecycle(['EXTRASUNNY']);
+  fs.writeFileSync(path.join(pack, 'common', 'data', 'timecycle', 'w_extrasunny.xml'), w);
+  fs.writeFileSync(path.join(pack, 'common', 'data', 'timecycle', 'timecycle_mods_1.xml'), '<timecycle_modifier_data><modifier name="x"><a_col_r>1</a_col_r></modifier></timecycle_modifier_data>');
+  fs.writeFileSync(path.join(pack, 'common', 'data', 'visualsettings.dat'), 'x 1');
+  fs.writeFileSync(path.join(pack, 'platform', 'textures', 'skydome.ytd'), buildYtd(['starfield']));
+  fs.writeFileSync(path.join(src, 'CoolPack', 'readme.txt'), 'hi');
+
+  const staged = m.stageSources([path.join(src, 'CoolPack')]);
+  const info = describePack('CoolPack', staged);
+  assert.strictEqual(info.count, 4, 'readme is ignored');
+  assert.deepStrictEqual(info.weather, ['common/data/timecycle/w_extrasunny.xml']);
+  assert.strictEqual(info.timecycles.length, 2);
+  assert.strictEqual(info.skydome, 'platform/textures/skydome.ytd');
+  const tcs = editableTimecycles(staged, info);
+  assert.deepStrictEqual(Object.keys(tcs), ['common/data/timecycle/w_extrasunny.xml']);
+
+  const edited = w.replace('<lod_mult>1.0', '<lod_mult>0.5');
+  const files = mergeForPack(staged, { 'common/data/timecycle/w_extrasunny.xml': edited }, { 'platform/textures/skydome.ytd': Buffer.from('new sky') });
+  const id = m.createPack('Cool AI', files);
+  m.setTweak(id, true);
+  assert.strictEqual(fs.readFileSync(path.join(cit, 'common/data/timecycle/w_extrasunny.xml'), 'utf8'), edited);
+  assert.strictEqual(fs.readFileSync(path.join(cit, 'common/data/visualsettings.dat'), 'utf8'), 'x 1');
+  assert.strictEqual(fs.readFileSync(path.join(cit, 'platform/textures/skydome.ytd'), 'utf8'), 'new sky');
+  assert.ok(fs.existsSync(path.join(src, 'CoolPack', 'citizen', 'platform', 'textures', 'skydome.ytd')), 'the dropped pack is not modified');
+  assert.strictEqual(m.findInCitizen('skydome.ytd'), 'platform/textures/skydome.ytd');
+  m.setTweak(id, false);
+  assert.ok(!fs.existsSync(path.join(cit, 'platform/textures/skydome.ytd')));
+});
+
+test('a loose skydome.ytd maps to the textures folder, not cdimages', () => {
+  const { m } = makeCitizen();
+  assert.strictEqual(m.mapLoose('skydome.ytd'), 'platform/textures/skydome.ytd');
+});
+
+test('installing an AI pack: files go live, water switches, missing world files are reported', () => {
+  const { m, cit, xml, rel } = makeCitizen();
+  const edited = xml.replace('<lod_mult>1.0', '<lod_mult>0.7');
+  const out = createPackWithTweaks(m, 'AI Test', { [rel]: edited }, { water: true, trees: true }, { extra: { 'platform/textures/skydome.ytd': Buffer.from('sky') } });
+  assert.ok(out.id);
+  assert.deepStrictEqual(out.applied, ['water']);
+  assert.strictEqual(out.skipped[0].id, 'trees');
+  assert.match(out.skipped[0].reason, /Load the files/);
+  assert.strictEqual(fs.readFileSync(path.join(cit, rel), 'utf8'), edited);
+  assert.strictEqual(fs.readFileSync(path.join(cit, 'platform/textures/skydome.ytd'), 'utf8'), 'sky');
+  assert.ok(fs.readFileSync(path.join(cit, 'common/data/levels/gta5/water.xml'), 'utf8').includes('IsInvisible'));
+  const onlyWorld = createPackWithTweaks(m, 'World only', {}, { water: false });
+  assert.strictEqual(onlyWorld.id, null, 'no files means no empty pack');
+  assert.deepStrictEqual(onlyWorld.applied, ['water']);
+  m.restoreAll();
+  assert.strictEqual(fs.readFileSync(path.join(cit, rel), 'utf8'), xml);
+});
+
+test('every renderer api.call has a handler in main.js', () => {
+  const root = path.join(__dirname, '..');
+  const main = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
+  const handlers = new Set([...main.matchAll(/handle\('([\w:]+)'/g)].map((x) => x[1]));
+  const dir = path.join(root, 'renderer', 'js');
+  const missing = [];
+  for (const f of fs.readdirSync(dir)) {
+    for (const x of fs.readFileSync(path.join(dir, f), 'utf8').matchAll(/api\.call\('([\w:]+)'/g)) {
+      if (!x[1].endsWith(':') && !handlers.has(x[1])) missing.push(f + ': ' + x[1]);
+    }
+  }
+  assert.deepStrictEqual(missing, []);
 });
