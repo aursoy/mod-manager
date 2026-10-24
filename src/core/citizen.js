@@ -90,34 +90,6 @@ const BUILTIN_TWEAKS = {
     onLabel: 'Removed',
     generated: { 'common/data/levels/gta5/water.xml': NO_WATER_XML },
   },
-  mountains: {
-    id: 'mountains',
-    name: 'Black Mountains',
-    description: 'Load the black-mountain files from your graphics pack once, then flip between removed and visible any time.',
-    offLabel: 'Visible',
-    onLabel: 'Removed',
-  },
-  trees: {
-    id: 'trees',
-    name: 'Trees',
-    description: 'Load the tree-removal files from your graphics pack once, then flip trees between removed and visible any time.',
-    offLabel: 'Visible',
-    onLabel: 'Removed',
-  },
-  bushes: {
-    id: 'bushes',
-    name: 'Bushes',
-    description: 'Load the bush and grass removal files from your graphics pack once, then flip them between removed and visible.',
-    offLabel: 'Visible',
-    onLabel: 'Removed',
-  },
-  props: {
-    id: 'props',
-    name: 'Props',
-    description: 'Load the prop-removal files from your graphics pack once, then flip props between removed and visible.',
-    offLabel: 'Visible',
-    onLabel: 'Removed',
-  },
 };
 
 const COLOUR_GROUPS = {
@@ -625,7 +597,7 @@ class CitizenManager {
   }
 
   /** Every file under citizen whose name matches re, as citizen-relative paths. */
-  findAllInCitizen(re) {
+  findAllInCitizen(re) { // re: a RegExp or anything with test(name)
     const c = this.state.citizenPath;
     if (!c || !fs.existsSync(c)) return [];
     const out = [];

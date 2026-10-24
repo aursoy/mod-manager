@@ -141,12 +141,11 @@ test('citizen manager: tweaks, colour and full restore are reversible', () => {
   m.setTweak('water', false);
   assert.ok(!fs.existsSync(water));
 
-  assert.throws(() => m.setTweak('mountains', true), /Load the files/);
   const src = path.join(tmp, 'mtn', 'citizen', 'common', 'data');
   fs.mkdirSync(src, { recursive: true });
   fs.writeFileSync(path.join(src, 'mountain.dat'), 'x');
-  m.importFiles('mountains', [path.join(tmp, 'mtn')]);
-  m.setTweak('mountains', true);
+  const mtn = m.addCustom('My tweak', [path.join(tmp, 'mtn')], 'tweak');
+  m.setTweak(mtn, true);
   assert.ok(fs.existsSync(path.join(cit, 'common', 'data', 'mountain.dat')));
 
   const r = m.applyColour({ r: 255, g: 0, b: 0, strength: 1, brightness: 0, groups: ['sky'] });

@@ -5,6 +5,14 @@ import { initKeys } from './keys.js';
 import { initStudio, refreshStudio, handleDrop as studioDrop } from './tcstudio.js';
 import * as TC from './timecycle.js';
 import { initLook, setBackgroundFile } from './look.js';
+import { refreshWorld, initWorldPage } from './world.js';
+import { createLab } from './cloudlab.js';
+
+const clothesLab = createLab({
+  P: 'ck', kind: 'clothes', mode: 'files', mount: '#lab-clothes', icon: 'shirt',
+  active: () => document.querySelector('.page[data-page="clothes"]').classList.contains('active'),
+  texts: { what: 'clothes', from: 'Clothes', open: 'Open clothes', list: 'Clothing textures', emptyTitle: 'Open some clothes', emptyText: 'Pick clothing .ytd files, a folder (like a server\'s stream folder) or an .rpf with clothes in it. You can also drop them here.', none: '' },
+});
 import { drawScene } from './tcpreview.js';
 import { initPages, refreshMods, refreshPresets, refreshCache, refreshProfile, addModFiles } from './pages.js';
 
@@ -108,6 +116,7 @@ function refreshPage(page) {
   if (page === 'mods') refreshMods();
   if (page === 'presets') refreshPresets();
   if (page === 'cache') refreshCache();
+  if (page === 'clothes') clothesLab.enter();
   requestAnimationFrame(() => $$('.seg').forEach(syncSeg));
 }
 
@@ -303,72 +312,6 @@ async function toggleTweak(t, on) {
   }
 }
 
-const TWEAK_ICON = { water: 'droplet', mountains: 'mountain', trees: 'tree', bushes: 'leaf', props: 'cube' };
-
-async function refreshWorld() {
-  const tweaks = (await api.call('tweaks:list')).filter((t) => t.kind !== 'pack');
-  const grid = $('#world-grid');
-  // A switch only makes sense once there are files to switch. Until then the card says so.
-  grid.innerHTML = tweaks.map((t) => {
-    const ready = t.hasFiles;
-    const state = !ready ? 'Not set up' : t.enabled ? t.onLabel : t.offLabel;
-    const desc = ready ? t.description : (t.builtin ? 'None of your packs added the files for this yet. If your pack comes with ' + t.name.toLowerCase() + ' removal files, add them here and you can switch it on and off.' : t.description);
-    return `
-    <div class="card tweak ${t.enabled ? 'on' : ''} ${ready ? '' : 'unset'}" data-id="${t.id}">
-      <div class="tweak-top">
-        <div class="tweak-icon"><div class="wave"></div>${icon(TWEAK_ICON[t.id] || 'layers')}</div>
-        <div><span class="big-state">${esc(state)}</span><h3>${esc(t.name)}</h3><p>${esc(desc)}</p></div>
-      </div>
-      <div class="files">${ready ? esc(t.files.slice(0, 3).join('  ·  ')) + (t.files.length > 3 ? '  +' + (t.files.length - 3) : '') : 'No files added'}</div>
-      <div class="state">
-        ${ready ? `<div class="seg">
-          <button data-v="off" class="${t.enabled ? '' : 'on'}">${esc(t.offLabel)}</button>
-          <button data-v="on" class="${t.enabled ? 'on' : ''}">${esc(t.onLabel)}</button>
-          <i class="seg-thumb"></i>
-        </div>` : '<span></span>'}
-        <div class="head-actions">
-          <button class="btn ${ready ? 'ghost' : 'primary'} sm" data-act="load">${icon('upload')}${t.customFiles ? 'Replace files' : t.id === 'water' ? 'Custom water.xml' : 'Add files'}</button>
-          ${t.builtin ? '' : `<button class="icon-btn" data-act="remove" title="Remove">${icon('trash')}</button>`}
-        </div>
-      </div>
-    </div>`;
-  }).join('');
-  stagger(grid);
-  $$('.tweak', grid).forEach((card) => {
-    const t = tweaks.find((x) => x.id === card.dataset.id);
-    const seg = $('.seg', card);
-    if (seg) requestAnimationFrame(() => syncSeg(seg));
-    $$('.seg button', card).forEach((b) => (b.onclick = async () => {
-      const on = b.dataset.v === 'on';
-      if (on === t.enabled) return;
-      $$('.seg button', card).forEach((x) => x.classList.toggle('on', x === b));
-      syncSeg(seg);
-      card.classList.toggle('on', on);
-      const ok = await toggleTweak(t, on);
-      setTimeout(refreshWorld, ok ? 450 : 0);
-    }));
-    $('[data-act=load]', card).onclick = async () => {
-      const files = await api.call('pick:files', { title: 'Select files for ' + t.name, filters: [{ name: 'Mod files', extensions: ['*'] }] });
-      if (files) loadTweakFiles(t, files);
-    };
-    const rm = $('[data-act=remove]', card);
-    if (rm) rm.onclick = async () => {
-      if (!(await modal({ title: 'Remove "' + t.name + '"?', text: 'Its files are removed from citizen and originals restored.', confirm: 'Remove', danger: true }))) return;
-      await api.call('tweaks:removeCustom', t.id).catch((e) => notify.error('Remove failed', e.message));
-      refreshWorld();
-    };
-    card.addEventListener('dragover', (e) => { e.preventDefault(); card.style.borderColor = '#fff'; });
-    card.addEventListener('dragleave', () => { card.style.borderColor = ''; });
-    card.addEventListener('drop', (e) => {
-      e.preventDefault(); e.stopPropagation();
-      card.style.borderColor = '';
-      hideVeil();
-      const paths = [...e.dataTransfer.files].map((f) => api.pathForFile(f));
-      if (paths.length) loadTweakFiles(t, paths);
-    });
-  });
-}
-
 async function loadTweakFiles(t, paths) {
   try {
     const n = await api.call('tweaks:import', t.id, paths);
@@ -378,6 +321,7 @@ async function loadTweakFiles(t, paths) {
 }
 
 function initWorld() {
+  initWorldPage({ toggleTweak, modal, loadTweakFiles });
   $('#add-tweak').onclick = async () => {
     const name = await modal({ title: 'New custom tweak', text: 'Next, pick a folder laid out like citizen/ (or containing common/ / platform/).', confirm: 'Choose folder', input: { label: 'Tweak name', value: 'My tweak' } });
     if (!name) return;
@@ -411,7 +355,7 @@ function initBackups() {
 }
 
 // ---------- settings ----------
-const prefs = { sound: true, reduceMotion: false, bg: true };
+const prefs = { sound: true, reduceMotion: false, bg: false, chrome: false };
 function loadPrefs() {
   try { Object.assign(prefs, JSON.parse(localStorage.getItem('kt.prefs') || '{}')); } catch (e) { /* ignore */ }
   applyPrefs();
@@ -420,6 +364,7 @@ function applyPrefs() {
   notifySettings.sound = prefs.sound;
   fxState.bg = prefs.bg;
   document.body.classList.toggle('reduce-motion', prefs.reduceMotion);
+  document.body.classList.toggle('chrome', !!prefs.chrome);
   $$('[data-setting]').forEach((s) => s.classList.toggle('on', !!prefs[s.dataset.setting]));
 }
 function initSettings() {
@@ -468,6 +413,7 @@ function initDrop() {
     else if (currentPage === 'gun') openGunFile(paths[0]);
     else if (currentPage === 'sound') handleSoundDrop(paths);
     else if (currentPage === 'mods') addModFiles(paths);
+    else if (currentPage === 'clothes') clothesLab.openPaths(paths);
     else if (currentPage === 'settings' && /\.(png|jpe?g|webp|gif|bmp|mp4|webm)$/i.test(paths[0])) setBackgroundFile(paths[0]);
     else notify.info('Drop on a card', 'Drag files onto the tweak you want them for.');
   });
@@ -521,6 +467,7 @@ async function boot() {
   safe('initBackups', initBackups);
   safe('initSettings', initSettings);
   safe('initLook', initLook);
+  safe('initClothes', () => clothesLab.init({ modal }));
   safe('initDrop', initDrop);
   safe('initKeys', initKeys);
   safe('initPages', () => initPages({ modal, go }));

@@ -54,7 +54,8 @@
         <a data-page="presets"><i data-icon="bookmark"></i><span>Presets</span></a>
         <p class="nav-sec">Create</p>
         <a data-page="gun"><i data-icon="crosshair"></i><span>Gun Lab</span><small>3D</small></a>
-        <a data-page="sound"><i data-icon="music"></i><span>Sound Lab</span><small>New</small></a>
+        <a data-page="sound"><i data-icon="music"></i><span>Sound Lab</span></a>
+        <a data-page="clothes"><i data-icon="shirt"></i><span>Clothing Lab</span><small>New</small></a>
         <p class="nav-sec">System</p>
         <a data-page="cache"><i data-icon="broom"></i><span>Cache</span></a>
         <a data-page="backups"><i data-icon="shield"></i><span>Backups</span></a>
@@ -75,8 +76,8 @@
       <section class="page active" data-page="home">
         <div class="page-head">
           <div>
-            <p class="eyebrow">Overview</p>
-            <h2 class="headline">Your game, <span class="outline">your rules.</span></h2>
+            <p class="eyebrow">kt / overview</p>
+            <h2 class="headline">Dashboard</h2>
           </div>
           <div class="head-actions">
             <button class="btn ghost" id="open-folder"><i data-icon="folder"></i>Open folder</button>
@@ -125,14 +126,15 @@
       <section class="page" data-page="graphics">
         <div class="page-head">
           <div>
-            <p class="eyebrow">Graphics</p>
-            <h2 class="headline">Make it <span class="outline">look good.</span></h2>
+            <p class="eyebrow">kt / graphics</p>
+            <h2 class="headline">Graphics</h2>
           </div>
           <div class="head-actions">
             <div class="seg gfx-tabs" id="gfx-tabs">
               <button data-pane="packs" class="on"><i data-icon="package"></i>My packs</button>
               <button data-pane="ai"><i data-icon="sparkles"></i>Create with AI</button>
               <button data-pane="clouds"><i data-icon="cloud"></i>Clouds</button>
+              <button data-pane="blood"><i data-icon="droplet"></i>Blood FX</button>
               <button data-pane="editor"><i data-icon="sliders"></i>Advanced editor</button>
               <i class="seg-thumb"></i>
             </div>
@@ -210,72 +212,11 @@
           </div>
         </div>
 
-        <!-- Cloud editor -->
-        <div class="gfx-pane hidden" data-pane="clouds">
-          <div class="card cl-top">
-            <label class="ted-field grow"><span>Clouds from</span><select id="cl-source" class="tc-select"></select></label>
-            <button class="btn ghost sm" id="cl-rescan"><i data-icon="search"></i>Look again</button>
-            <span class="cl-sep"></span>
-            <button class="icon-btn" id="cl-undo" title="Undo (Ctrl+Z)"><i data-icon="undo"></i></button>
-            <button class="icon-btn" id="cl-redo" title="Redo (Ctrl+Y)"><i data-icon="redo"></i></button>
-            <button class="btn ghost sm" id="cl-compare" title="Hold to see the original"><i data-icon="eye"></i>Hold to compare</button>
-            <span class="tag" id="cl-dirty">No changes</span>
-            <button class="btn ghost sm hidden" id="cl-uninstall"><i data-icon="undo"></i>Undo install</button>
-            <button class="btn primary sm" id="cl-install" disabled><i data-icon="zap"></i>Install clouds</button>
-          </div>
+        <!-- Cloud editor (built by cloudlab.js) -->
+        <div class="gfx-pane hidden" data-pane="clouds"><div id="lab-clouds"></div></div>
 
-          <div class="cl-work">
-            <div class="card cl-tools" id="cl-tools">
-              <button data-tool="hand" title="Move around (H, or hold Space)"><i data-icon="hand"></i></button>
-              <button data-tool="brush" class="on" title="Brush (B)"><i data-icon="brush"></i></button>
-              <button data-tool="eraser" title="Eraser (E)"><i data-icon="eraser"></i></button>
-              <button data-tool="picker" title="Pick a colour (I)"><i data-icon="pipette"></i></button>
-              <button data-tool="fill" title="Paint bucket (G)"><i data-icon="bucket"></i></button>
-              <span class="cl-tsep"></span>
-              <button data-act="fit" title="Fit to screen (0)"><i data-icon="maximize"></i></button>
-              <button data-act="100" title="Actual size (1)"><span class="mono">1:1</span></button>
-            </div>
-
-            <div class="card cl-stage" id="cl-stage">
-              <canvas id="cl-view"></canvas>
-              <div class="tce-empty" id="cl-empty"><i data-icon="cloud"></i><b id="cl-empty-title">Looking for your clouds…</b><small id="cl-empty-text">Checking your pack, your mods folder, citizen and GTA V.</small></div>
-              <div class="cl-status" id="cl-status"></div>
-            </div>
-
-            <div class="cl-side">
-              <div class="card cl-panel"><h4>Cloud hats</h4><ul class="cl-list" id="cl-list"></ul></div>
-              <div class="card cl-panel">
-                <h4>Brush</h4>
-                <div class="cl-colour"><input type="color" id="cl-color" value="#ffffff" /><div class="cl-swatches" id="cl-swatches"></div></div>
-                <div class="slider-field"><span>Size <b id="cl-size-val">40px</b></span><input type="range" id="cl-size" min="1" max="400" value="40" /></div>
-                <div class="slider-field"><span>Softness <b id="cl-soft-val">50%</b></span><input type="range" id="cl-soft" min="0" max="100" value="50" /></div>
-                <div class="slider-field"><span>Strength <b id="cl-opacity-val">60%</b></span><input type="range" id="cl-opacity" min="1" max="100" value="60" /></div>
-              </div>
-              <div class="card cl-panel">
-                <h4>Adjust colours</h4>
-                <div class="slider-field"><span>Hue <b id="cl-hue-val">0°</b></span><input type="range" id="cl-hue" min="-180" max="180" value="0" /></div>
-                <div class="slider-field"><span>Saturation <b id="cl-sat-val">100%</b></span><input type="range" id="cl-sat" min="0" max="300" value="100" /></div>
-                <div class="slider-field"><span>Brightness <b id="cl-bright-val">0</b></span><input type="range" id="cl-bright" min="-100" max="100" value="0" /></div>
-                <div class="slider-field"><span>Contrast <b id="cl-contrast-val">100%</b></span><input type="range" id="cl-contrast" min="0" max="250" value="100" /></div>
-                <div class="ctrl-row tight"><label class="field colour-field"><span>Tint</span><input type="color" id="cl-tint" value="#b050ff" /></label><div class="slider-field"><span>Amount <b id="cl-tint-val">0%</b></span><input type="range" id="cl-tint-amt" min="0" max="100" value="0" /></div></div>
-                <div class="cl-btns"><button class="btn primary sm" id="cl-adj-apply"><i data-icon="check"></i>Apply</button><button class="btn ghost sm" id="cl-adj-all"><i data-icon="layers"></i>Apply to all clouds</button><button class="btn ghost sm" id="cl-adj-reset">Reset</button></div>
-              </div>
-              <div class="card cl-panel">
-                <h4>Picture &amp; edits</h4>
-                <label class="cl-check"><input type="checkbox" id="cl-keep" checked /> Keep the cloud's shape</label>
-                <div class="cl-btns">
-                  <button class="btn ghost sm" id="cl-picture"><i data-icon="image"></i>Use a picture</button>
-                  <button class="btn ghost sm" id="cl-flip-h">Flip ↔</button>
-                  <button class="btn ghost sm" id="cl-flip-v">Flip ↕</button>
-                  <button class="btn ghost sm" id="cl-invert">Invert</button>
-                  <button class="btn ghost sm" id="cl-mono">Black &amp; white</button>
-                  <button class="btn ghost sm" id="cl-reset-tex"><i data-icon="undo"></i>Back to original</button>
-                </div>
-              </div>
-              <div class="card cl-panel"><h4>History</h4><ul class="cl-history" id="cl-history"></ul></div>
-            </div>
-          </div>
-        </div>
+        <!-- Blood FX editor (built by cloudlab.js) -->
+        <div class="gfx-pane hidden" data-pane="blood"><div id="lab-blood"></div></div>
 
         <!-- Advanced editor -->
         <div class="gfx-pane hidden" data-pane="editor">
@@ -342,8 +283,8 @@
       <section class="page" data-page="world">
         <div class="page-head">
           <div>
-            <p class="eyebrow">World</p>
-            <h2 class="headline">Shape the <span class="outline">map.</span></h2>
+            <p class="eyebrow">kt / world</p>
+            <h2 class="headline">World</h2>
           </div>
           <div class="head-actions">
             <button class="btn ghost" id="add-tweak"><i data-icon="plus"></i>Custom tweak</button>
@@ -357,7 +298,7 @@
         <div class="gun-empty" id="gun-empty">
           <div class="gun-drop" id="gun-drop">
             <div class="reticle"><span></span><span></span><span></span><span></span><i></i></div>
-            <h2 class="headline">Gun <span class="outline">Lab.</span></h2>
+            <h2 class="headline">Gun Lab</h2>
             <p>Drop a weapon <code>.rpf</code>, <code>.ytd</code> or <code>.ydr</code>. See it in 3D, recolour it, stamp text on it, export.</p>
             <button class="btn primary" id="gun-browse"><i data-icon="upload"></i>Open weapon file</button>
           </div>
@@ -450,10 +391,19 @@
         </div>
       </section>
 
+      <!-- CLOTHING LAB -->
+      <section class="page" data-page="clothes">
+        <div class="page-head">
+          <div><p class="eyebrow">kt / create</p><h2 class="headline">Clothing Lab</h2></div>
+        </div>
+        <p class="gfx-lead">Open clothing textures (.ytd files, a folder like a server's stream folder, or an .rpf) and design them: recolour, paint, or put your own picture or logo on them. Save them to a folder for your server, or install them to your own game.</p>
+        <div id="lab-clothes"></div>
+      </section>
+
       <!-- MODS -->
       <section class="page" data-page="mods">
         <div class="page-head">
-          <div><p class="eyebrow">Mods folder</p><h2 class="headline">Every RPF, <span class="outline">one switch.</span></h2></div>
+          <div><p class="eyebrow">kt / FiveM.app/mods</p><h2 class="headline">Mods</h2></div>
           <div class="head-actions">
             <button class="btn ghost" id="mods-open"><i data-icon="folder"></i>Open folder</button>
             <button class="btn primary" id="mods-add"><i data-icon="plus"></i>Add mods</button>
@@ -470,7 +420,7 @@
       <!-- PRESETS -->
       <section class="page" data-page="presets">
         <div class="page-head">
-          <div><p class="eyebrow">Presets</p><h2 class="headline">Swap setups <span class="outline">instantly.</span></h2></div>
+          <div><p class="eyebrow">kt / presets</p><h2 class="headline">Presets</h2></div>
           <div class="head-actions"><button class="btn primary" id="preset-save"><i data-icon="bookmark"></i>Save current setup</button></div>
         </div>
         <div class="grid preset-grid" id="preset-grid"></div>
@@ -481,7 +431,7 @@
         <div class="gun-empty" id="snd-empty">
           <div class="gun-drop" id="snd-drop">
             <div class="eq"><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
-            <h2 class="headline">Sound <span class="outline">Lab.</span></h2>
+            <h2 class="headline">Sound Lab</h2>
             <p>Drop <code>WEAPONS_PLAYER.rpf</code> and <code>RESIDENT.rpf</code>. Listen to every gun, footstep and kill sound, then swap in your own.</p>
             <button class="btn primary" id="snd-browse"><i data-icon="upload"></i>Open sound archives</button>
             <p class="fine">Encrypted (NG) packs work too: the first time, Kt Mod Manager unlocks them using your own GTA V install. Exports are saved unencrypted (OPEN).</p>
@@ -531,7 +481,7 @@
       <!-- CACHE -->
       <section class="page" data-page="cache">
         <div class="page-head">
-          <div><p class="eyebrow">Cache</p><h2 class="headline">Clean it <span class="outline">up.</span></h2></div>
+          <div><p class="eyebrow">kt / system</p><h2 class="headline">Cache</h2></div>
           <div class="head-actions"><button class="btn ghost" id="cache-refresh"><i data-icon="rotate"></i>Rescan</button><button class="btn primary" id="cache-clean"><i data-icon="broom"></i>Clean selected</button></div>
         </div>
         <div class="card cache-hero"><div><p class="label" style="margin-top:0">Selected</p><h4 class="big-num" id="cache-total">0 MB</h4><small>Close FiveM before cleaning. Everything here rebuilds automatically.</small></div><div class="cache-ring"><svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="52" class="track"/><circle cx="60" cy="60" r="52" class="fill" id="cache-arc"/></svg><b id="cache-pct">0%</b></div></div>
@@ -542,8 +492,8 @@
       <section class="page" data-page="backups">
         <div class="page-head">
           <div>
-            <p class="eyebrow">Safety</p>
-            <h2 class="headline">Every change, <span class="outline">reversible.</span></h2>
+            <p class="eyebrow">kt / system</p>
+            <h2 class="headline">Backups</h2>
           </div>
           <div class="head-actions"><button class="btn danger" id="restore-all"><i data-icon="undo"></i>Restore everything</button></div>
         </div>
@@ -553,7 +503,7 @@
       <!-- SETTINGS -->
       <section class="page" data-page="settings">
         <div class="page-head">
-          <div><p class="eyebrow">Settings</p><h2 class="headline">Make it <span class="outline">yours.</span></h2></div>
+          <div><p class="eyebrow">kt / system</p><h2 class="headline">Settings</h2></div>
         </div>
         <div class="grid settings-grid">
           <div class="card setting look span-2">
@@ -567,6 +517,7 @@
             </div>
             <div class="look-actions"><button class="btn primary sm" id="look-pick"><i data-icon="image"></i>Choose picture or video</button><button class="btn ghost sm" id="look-clear"><i data-icon="undo"></i>Back to default</button></div>
           </div>
+          <div class="card setting"><div><b>Chrome effect</b><small>Metal finish on titles, buttons and panels</small></div><button class="switch" data-setting="chrome"><i></i></button></div>
           <div class="card setting"><div><b>Notification sounds</b><small>Soft clicks when things happen</small></div><button class="switch" data-setting="sound"><i></i></button></div>
           <div class="card setting"><div><b>Reduce motion</b><small>Tone down animations</small></div><button class="switch" data-setting="reduceMotion"><i></i></button></div>
           <div class="card setting"><div><b>Background field</b><small>Interactive dot grid</small></div><button class="switch" data-setting="bg"><i></i></button></div>

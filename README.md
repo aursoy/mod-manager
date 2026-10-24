@@ -15,14 +15,18 @@ Or double-click `start.bat`.
 
 **Manage**
 - **Dashboard**: link `FiveM.app/citizen` by dropping it in or using auto-detect. Shows stats, activity and a Launch FiveM button.
-- **Graphics**: four tabs.
+- **Graphics**: five tabs.
   - **My packs**: add packs (drop a folder or `.zip`), switch them on and off, delete them. Files go to `citizen`, and the pack's `.rpf` files go to `FiveM.app/mods`; both are backed up and removed again when the pack is switched off. **Colour tint** tints every timecycle in your game, with a live preview of the result. Applying again replaces the last tint; Reset tint removes it.
   - **Create with AI**: describe the pack you want. Add a picture to make it your sky, or a pack folder to build on. See below.
   - **Clouds**: a paint-program style editor for the cloud hats (`cloudhat_*.ytd`). They are found automatically in your pack, your `FiveM.app/mods` folder (inside any RPF, whatever it is called), citizen or GTA V. Brush, eraser, colour picker, paint bucket, zoom and pan; hue / saturation / brightness / contrast / tint with live preview, on one texture or **all clouds at once**; swap in your own picture while keeping the cloud's shape; flip, invert, black & white; undo/redo with a history list; hold to compare with the original. **Install clouds** writes them back in their original format (into the RPF they came from, backed up; GTA V's own clouds go into a new `mods/kt_clouds.rpf`) and checks the files on disk. Shortcuts: B, E, I, G, H, Space to pan, [ ] brush size, 0 fit, 1 actual size, Ctrl+Z / Ctrl+Y.
+  - **Blood FX**: the same editor for the blood textures (`fxdecal.ytd`, `peddamagedecals.ytd`), found in your pack, `mods`, citizen or GTA V. Recolour all of it at once (neon, black, confetti colours...), paint, or swap in a picture. GTA V's own blood is installed as `mods/kt_bloodfx.rpf` and `citizen/platform/textures/`.
   - **Advanced editor**: open any timecycle XML from your game (or your computer). Pick the weather and the area (Countryside or City; every game weather file has both), and see it in a live day/night preview. Settings have plain names ("Sky colour (top)", "Moon size"). Click one to open it: every box is one time of day, and you only change the box you pick (there is also "use this colour all day"). Untouched values are saved exactly as they were. Save to game (backed up), save as a pack, or export. For files FiveM does not read (not named `w_*.xml`), "Use for sunny weather" copies it over the sunny and clear weather.
 - **World**:
   - Water: removed / visible.
-  - Black mountains, Trees, Bushes, Props: these need removal files that come with some packs. Until you add them, the card says "Not set up" instead of showing a switch.
+  - Black mountains: changes how far the game draws in `visualsettings.dat` (`misc.Multiplier.farClipMultiplier`), on top of your pack's file. Removed / Visible plus a draw-distance slider; if your pack has its own "black mountains" section in that file, its lines are shown so you can change them directly. Switching back puts the file back exactly as it was.
+  - Snow: snow for every weather type in `weather.xml` (Snow / SnowMist), with an amount slider.
+  - Visual settings: every line of `visualsettings.dat`, searchable and editable, Save / Reset.
+  - If citizen has no `visualsettings.dat` / `weather.xml`, the game's own copy is read from GTA V (update.rpf, then common.rpf).
   - Custom tweaks: any folder laid out like `citizen/` becomes a toggle.
 - **Mods**: lists `FiveM.app/mods`. Turning a mod off renames it to `.rpf.off`. You can also add mods or move them to the Recycle Bin.
 - **Presets**: save your current packs, tweaks, colour grade and enabled mods, then switch back in one click.
@@ -33,6 +37,7 @@ Or double-click `start.bat`.
   - Recolour, and add 3D-style text. Drag the text on the texture, or click a spot on the model to place it.
   - Export, or install to `mods`.
   - A texture shared by several models (e.g. `_hi` copies) is edited once and written to all of them.
+- **Clothing Lab**: open clothing textures (`.ytd` files, a folder such as a server's `stream` folder, or an `.rpf`) and design them with the same paint editor. Files are named by what they are ("Top #15 · texture C · male", "Hat #2"...). **Save to folder** writes the edited `.ytd` files (for a server's stream folder); **Install** puts them in `mods/kt_clothes.rpf`.
 - **Sound Lab**: open `WEAPONS_PLAYER.rpf`, `RESIDENT.rpf` or a sound pack.
   - Banks are grouped into Guns, Footsteps, Kill/HUD and Other. Gun banks say which gun they are for ("Combat Pistol", "Micro SMG", "Heavy Sniper"...), read from the bank names (`ptl_combat`, `smg_micro`, `snp_heavy`); search by gun name.
   - Play any sound, or replace it with your own `.wav` / `.mp3` / `.ogg`, adjusting volume, pitch, trim, max length and fade.
@@ -41,7 +46,7 @@ Or double-click `start.bat`.
 **System**
 - **Cache**: shows the size of each FiveM cache folder and cleans the ones you select.
 - **Backups**: the original of every file the app changes is backed up first. "Restore everything" puts the folder back to stock.
-- **Settings**: your own background (a picture or a looping MP4/WebM video, with Darken and Blur; or drop a file on the Settings page), sounds, reduce motion, background effect, notification test.
+- **Settings**: Chrome effect (metal finish on titles, buttons and panel edges), your own background (a picture or a looping MP4/WebM video, with Darken and Blur; or drop a file on the Settings page), sounds, reduce motion, background effect, notification test.
 
 **Profile** (bottom left): set a display name and avatar, or link Discord to show your Discord name and avatar and set your Discord status. Linking Discord needs:
 - the Discord desktop app running
@@ -79,7 +84,7 @@ It works offline; nothing is sent anywhere.
 ## Dev
 
 ```
-npm test                      # 47 tests: RPF, textures, DXT, citizen, AWC, Sound Lab, mods, cache, presets, timecycle editor, Pack AI, sky texture, dropped packs
+npm test                      # 51 tests: RPF, textures, DXT, citizen, AWC, Sound Lab, mods, cache, presets, timecycle editor, Pack AI, sky texture, dropped packs
 node scripts/make-sample.mjs  # builds samples/ (test pistol + test sound pack)
 node scripts/rpf-ls.js x.rpf  # list an archive's contents, including nested archives
 ```
