@@ -60,18 +60,17 @@ Type what you want, and optionally add a picture and/or a pack folder:
 
 - **A picture as the sky**: GTA V's custom skies are the `starfield` picture inside `skydome.ytd` (what sky packs replace). Your picture is written into it, in its original size and format, and shows **all the time**: the day sky is darkened and the stars turned up so the picture is not washed out (say "only at night" if you want it at night only). It is written to both places FiveM can load it from: the sky RPF it came from in `FiveM.app/mods`, and `FiveM.app/citizen/platform/textures/skydome.ytd`. The sky is found by what is inside each RPF, not by its name: only an archive's file list is read (a few KB) until one with `skydome.ytd` turns up, nested RPFs included, so your mate's pack works whatever its RPFs are called, up to 2 GB each.
 - **A pack folder or .zip** (folder button, or drop it on the chat): the AI builds on it. The new pack keeps every file of the original; the original folder is never changed.
-- **Things you can ask for**: pvp pack; always night / always day; stars, moon, sun, clouds, fog, glow, distance blur with more / less / no / bigger / smaller; moods (sunset, night, neon/cyberpunk, vaporwave, apocalypse, overcast, foggy, stormy, winter, desert, cinematic, sunny); colours ("purple sky", "red tint"); darker / brighter / more vibrant; "no water", "no black mountains", "no trees", "no bushes", "no props" and the matching "have ..."; FPS boost (light / boost / max).
-- Every answer says exactly what changed, and plainly when something could not be done (for example a timecycle with no moon size value, or trees whose removal files are not loaded yet).
+- **Things you can ask for**: pvp pack; always night / always day; stars, moon, sun, clouds, fog, glow, distance blur with more / less / no / bigger / smaller; moods (sunset, night, neon/cyberpunk, vaporwave, apocalypse, overcast, foggy, stormy, winter, desert, cinematic, sunny); colours ("purple sky", "red tint"); darker / brighter / more vibrant; "no water", "no black mountains", "add snow" and the matching "have ..." / "no snow"; FPS boost (light / boost / max).
+- Every answer says exactly what changed, and plainly when something could not be done (for example a timecycle with no moon size value).
 - **It installs itself.** Press Create and the pack goes straight into your game. The app then reads the files back from disk and tells you exactly where your picture is. **Undo** takes everything back out, including world switches. If a file cannot be written (FiveM still open), it says so; close FiveM and press Install again. Keep chatting to change it ("now darker"); each new version replaces the last. **Fine-tune** opens it in the Advanced editor.
 - **PvP packs**: "pvp pack" gives a clear view and steady FPS: no fog (`fog_density`), no glow (`postfx_intensity_bloom`), no distance blur (`dof_blur_far`), vivid colours and an FPS boost. "Always night" (or "no day") makes every hour of every weather look like midnight, the way only-night packs do; "always day" does the same with midday. "No sun" removes the sun disc.
-- Water works out of the box. Black mountains, trees, bushes and props switch only after you load their removal files on the World page once.
+- Water, black mountains and snow are the same switches as on the World page, and Undo puts them back too.
 - FPS boost lowers LOD distance, shadow distance, ambient occlusion, light rays and motion blur, only where those values exist in the files.
 
 It works offline; nothing is sent anywhere.
 
 ## Limits
 
-- The Pack AI cannot create the files that remove trees, bushes, props or black mountains; it switches them once you have loaded them.
 - `citizen/platform/textures/skydome.ytd` is where FiveM loads its sky from (Cfx.re how-to); the sky RPF in `mods` is written as well, so either way the picture is there.
 - Sky textures in BC7 or ATI format cannot be written yet; the sky colours still change.
 - The editor's clock times for the 9 daily keyframes are approximate and only drive the preview. The values and their order in your file are never reordered.
