@@ -2,10 +2,13 @@
 // World options that edit a game data file in place, on top of whatever is there
 // now (the stock file or a graphics pack's version):
 //   Black mountains   visualsettings.dat  (how far the game draws: misc.Multiplier.farClipMultiplier)
+//   Player detail     visualsettings.dat  (how far away players keep their full model: ped.lod.distance.*)
 //   Snow              weather.xml         (the Snow / SnowMist value of every weather type)
 //   Visual settings   visualsettings.dat  (any line, from the editor)
 // Each change remembers exactly what was there before it, so switching it off puts
-// that back: a pack's file stays the pack's file.
+// that back: a pack's file stays the pack's file. The visualsettings.dat options each
+// keep their own lines, and the file is always "the file before any of them + all of them",
+// so switching one off never undoes another.
 
 const fs = require('fs');
 const path = require('path');
@@ -19,6 +22,18 @@ const GAME_PATHS = {
   [WEATHER]: [['update/update.rpf', 'common/data/levels/gta5/weather.xml'], ['common.rpf', 'data/levels/gta5/weather.xml']],
 };
 const REMOVED_FAR_CLIP = 0.5;
+const VS_OWNER = 'visualsettings';
+const VS_LAYERS = ['mountains', 'pedlod', 'editor']; // later ones win on the same line
+// Up to how many metres away a player keeps the full model. GTA's own values are
+// 25 / 50 / 80 (7 / 15 in a car), and FPS packs often cut them further, which is
+// why players a few metres away turn into blocky low-detail models.
+const PED_LOD = {
+  'ped.lod.distance.high': 150,
+  'ped.lod.distance.medium': 250,
+  'ped.lod.distance.low': 400,
+  'pedincar.lod.distance.high': 60,
+  'pedincar.lod.distance.high.x64': 80,
+};
 
 class WorldFiles {
   /** readGame(rpfRelToGtaDir, innerPath) -> Buffer | null */
@@ -41,6 +56,10 @@ class WorldFiles {
   current(rel) {
     const abs = this.mgr.absFor(rel);
     if (fs.existsSync(abs)) return fs.readFileSync(abs, 'utf8');
+    return this.fromGame(rel);
+  }
+
+  fromGame(rel) {
     for (const [arc, inner] of GAME_PATHS[rel] || []) {
       try { const b = this.readGame(arc, inner); if (b) return b.toString('utf8'); } catch (e) { if (e.code === 'NEED_KEYS') this.needKeys = true; }
     }
@@ -50,7 +69,8 @@ class WorldFiles {
   /** The file as it was before `owner` changed it. */
   before(owner, rel) {
     const p = this.w.patches[owner + '|' + rel];
-    if (p && fs.existsSync(this.prevPath(owner, rel))) return fs.readFileSync(this.prevPath(owner, rel), 'utf8');
+    if (p && p.existed && fs.existsSync(this.prevPath(owner, rel))) return fs.readFileSync(this.prevPath(owner, rel), 'utf8');
+    if (p && !p.existed) return this.fromGame(rel); // citizen had no copy: the one there now is ours
     return this.current(rel);
   }
 
@@ -79,19 +99,45 @@ class WorldFiles {
     this.mgr.save();
   }
 
+  // ---------- visualsettings.dat (shared by the options below) ----------
+
+  get vsLayers() { this.w.vs = this.w.vs || {}; return this.w.vs; }
+
+  /** visualsettings.dat as it was before any of our options touched it. */
+  vsBase() { return this.before(VS_OWNER, VS); }
+
+  /** Set one option's lines (null drops them) and write the file again. */
+  writeVS(layer, changes) {
+    const L = this.vsLayers;
+    if (changes && Object.keys(changes).length) L[layer] = changes; else delete L[layer];
+    if (!Object.keys(L).length) { this.unpatch(VS_OWNER, VS); return; }
+    const base = this.vsBase();
+    if (base == null) throw new Error('No visualsettings.dat found in your game or packs.');
+    const all = Object.assign({}, ...VS_LAYERS.map((k) => L[k] || {}));
+    let text = setValues(base, all);
+    // a pack's file can leave lines out; add the ones we need at the end
+    const have = new Set(parseVS(base).map((e) => e.key));
+    const missing = Object.keys(all).filter((k) => !have.has(k));
+    if (missing.length) {
+      const crlf = (base.match(/\r\n/g) || []).length;
+      const eol = crlf * 2 > (base.match(/\n/g) || []).length ? '\r\n' : '\n';
+      text = text.replace(/\s*$/, '') + eol + eol + '# Kt Mod Manager' + eol + missing.map((k) => k + '\t' + all[k]).join(eol) + eol;
+    }
+    this.patch(VS_OWNER, VS, text);
+  }
+
   // ---------- black mountains ----------
 
   mountains() {
-    const text = this.before('mountains', VS);
+    const text = this.vsBase();
     if (text == null) return { available: false };
     const entries = parseVS(text);
     const far = entries.find((e) => e.key === FAR_CLIP);
     const packKeys = packMountainKeys(entries);
     const now = parseVS(this.current(VS) || '');
-    const removed = this.mgr.state.owners[VS] === 'mountains';
     return {
       available: !!far || packKeys.length > 0,
-      removed,
+      removed: !!this.vsLayers.mountains,
       original: far ? far.value : null,
       value: (now.find((e) => e.key === FAR_CLIP) || far || {}).value ?? null,
       packKeys: packKeys.map((k) => ({ key: k, value: (now.find((e) => e.key === k) || {}).value, section: (entries.find((e) => e.key === k) || {}).section })),
@@ -100,15 +146,48 @@ class WorldFiles {
 
   /** opts: { removed: bool, distance?: number, keys?: { key: value } } */
   setMountains(opts) {
-    if (!opts.removed && !opts.distance && !opts.keys) { this.unpatch('mountains', VS); return this.mountains(); }
-    const base = this.before('mountains', VS);
+    if (!opts.removed && !opts.distance && !opts.keys) { this.writeVS('mountains', null); return this.mountains(); }
+    const base = this.vsBase();
     if (base == null) throw new Error('No visualsettings.dat found in your game or packs.');
     const far = parseVS(base).find((e) => e.key === FAR_CLIP);
     const changes = { ...(opts.keys || {}) };
     if (far) changes[FAR_CLIP] = opts.distance != null ? opts.distance : opts.removed ? far.value * REMOVED_FAR_CLIP : far.value;
-    this.patch('mountains', VS, setValues(base, changes));
+    this.writeVS('mountains', changes);
     return this.mountains();
   }
+
+  // ---------- player detail distance (low-detail "blocky" players up close) ----------
+
+  pedLod() {
+    const text = this.vsBase();
+    if (text == null) return { available: false };
+    const was = parseVS(text);
+    const now = parseVS(this.current(VS) || '');
+    const val = (list, k) => (list.find((e) => e.key === k) || {}).value ?? null;
+    const high = 'ped.lod.distance.high';
+    return { available: true, on: !!this.vsLayers.pedlod, before: val(was, high), now: val(now, high), fixed: PED_LOD[high] };
+  }
+
+  setPedLod(on) {
+    this.writeVS('pedlod', on ? { ...PED_LOD } : null);
+    return this.pedLod();
+  }
+
+  // ---------- visual settings editor ----------
+
+  visualSettings() {
+    const text = this.current(VS);
+    if (text == null) return { available: false, entries: [] };
+    const abs = this.mgr.absFor(VS);
+    return { available: true, source: fs.existsSync(abs) ? 'your game' : 'GTA V (stock)', edited: !!this.vsLayers.editor, entries: parseVS(text) };
+  }
+
+  saveVisualSettings(changes) {
+    this.writeVS('editor', { ...(this.vsLayers.editor || {}), ...changes });
+    return this.visualSettings();
+  }
+
+  resetVisualSettings() { this.writeVS('editor', null); return this.visualSettings(); }
 
   // ---------- snow ----------
 
@@ -131,24 +210,6 @@ class WorldFiles {
     this.patch('snow', WEATHER, text);
     return this.snow();
   }
-
-  // ---------- visual settings editor ----------
-
-  visualSettings() {
-    const text = this.current(VS);
-    if (text == null) return { available: false, entries: [] };
-    const abs = this.mgr.absFor(VS);
-    return { available: true, source: fs.existsSync(abs) ? 'your game' : 'GTA V (stock)', edited: !!this.w.patches['visualsettings|' + VS], entries: parseVS(text) };
-  }
-
-  saveVisualSettings(changes) {
-    const base = this.current(VS);
-    if (base == null) throw new Error('No visualsettings.dat found in your game or packs.');
-    this.patch('visualsettings', VS, setValues(base, changes));
-    return this.visualSettings();
-  }
-
-  resetVisualSettings() { this.unpatch('visualsettings', VS); return this.visualSettings(); }
 }
 
-module.exports = { WorldFiles, VS, WEATHER };
+module.exports = { WorldFiles, VS, WEATHER, PED_LOD };

@@ -270,22 +270,24 @@ app.whenReady().then(() => {
   };
   handle('world:mountains', () => worldCall(() => world.mountains()));
   handle('world:setMountains', (opts) => worldCall(() => world.setMountains(opts)));
+  handle('world:pedLod', () => worldCall(() => world.pedLod()));
+  handle('world:setPedLod', (on) => worldCall(() => world.setPedLod(on)));
   handle('world:snow', () => worldCall(() => world.snow()));
   handle('world:setSnow', (amount) => worldCall(() => world.setSnow(amount)));
   handle('world:visual', () => worldCall(() => world.visualSettings()));
   handle('world:saveVisual', (changes) => worldCall(() => world.saveVisualSettings(changes)));
   handle('world:resetVisual', () => world.resetVisualSettings());
 
-  // ----- texture labs: clouds, blood FX, clothes -----
+  // ----- texture labs: clouds, blood FX -----
   const labs = {};
-  const PACK_NAMES = { clouds: 'Custom clouds', blood: 'Custom blood FX', clothes: 'Custom clothes' };
+  const PACK_NAMES = { clouds: 'Custom clouds', blood: 'Custom blood FX' };
   const labInfo = (kind) => ({ label: labs[kind].label, items: labs[kind].items.map((x) => ({ key: x.key, name: x.name, file: x.file, path: x.path, textures: x.ytd.describe(true) })) });
   handle('tex:list', (kind) => listSources(kind, skyCtx()));
   handle('tex:open', async (kind, id) => { labs[kind] = await openSource(kind, id, skyCtx()); return labInfo(kind); });
   handle('tex:openFiles', async (kind, given) => {
     let paths = given;
     if (!paths) {
-      const r = await dialog.showOpenDialog(win, { title: 'Open clothing textures (.ytd), a folder or an .rpf', properties: ['openFile', 'multiSelections'], filters: [{ name: 'Textures / archives', extensions: ['ytd', 'rpf'] }] });
+      const r = await dialog.showOpenDialog(win, { title: 'Choose your blood FX .rpf', properties: ['openFile'], filters: [{ name: 'Blood FX RPF', extensions: ['rpf'] }] });
       if (r.canceled) return null;
       paths = r.filePaths;
     }
@@ -416,6 +418,30 @@ app.whenReady().then(() => {
       filters: [{ name: 'GTA files', extensions: ['rpf', 'ytd', 'ydr'] }],
     });
     return r.canceled ? null : r.filePaths[0];
+  });
+  // Fonts for 3D text: the real font file when Windows has it, else a font that ships with three.js.
+  const FONT_FILES = { 'Impact': ['impact.ttf'], 'Arial Black': ['ariblk.ttf'], 'Bahnschrift': ['bahnschrift.ttf'], 'Georgia': ['georgiab.ttf', 'georgia.ttf'], 'Segoe Script': ['segoescb.ttf', 'segoesc.ttf'] };
+  const TYPEFACES = { 'Helvetiker': 'helvetiker_bold', 'Optimer': 'optimer_bold', 'Gentilis': 'gentilis_bold', 'Georgia': 'droid/droid_serif_bold', 'JetBrains Mono': 'droid/droid_sans_mono_regular' };
+  const fontDirs = () => [
+    path.join(process.env.WINDIR || 'C:\\Windows', 'Fonts'),
+    process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, 'Microsoft', 'Windows', 'Fonts'),
+  ].filter(Boolean);
+  handle('gun:font', (name) => {
+    for (const f of FONT_FILES[name] || []) {
+      for (const d of fontDirs()) {
+        const file = path.join(d, f);
+        if (fs.existsSync(file)) return { type: 'ttf', data: fs.readFileSync(file) };
+      }
+    }
+    const tf = TYPEFACES[name] || 'helvetiker_bold';
+    return { type: 'json', text: fs.readFileSync(path.join(__dirname, 'node_modules', 'three', 'examples', 'fonts', ...(tf + '.typeface.json').split('/')), 'utf8') };
+  });
+  handle('gun:pickFont', async () => {
+    const r = await dialog.showOpenDialog(win, { title: 'Choose a font', properties: ['openFile'], defaultPath: fontDirs()[0], filters: [{ name: 'Fonts', extensions: ['ttf', 'otf'] }] });
+    if (r.canceled) return null;
+    const file = r.filePaths[0];
+    if (fs.statSync(file).size > 30 * 1048576) throw new Error('That font file is too big.');
+    return { name: path.basename(file).replace(/\.(ttf|otf)$/i, ''), data: fs.readFileSync(file) };
   });
   handle('gun:export', async (edits, opts = {}) => {
     if (!gun) throw new Error('Open a gun file first.');

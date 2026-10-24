@@ -1,7 +1,6 @@
-// Texture labs: a paint-program editor for GTA texture dictionaries, used three times:
+// Texture labs: a paint-program editor for GTA texture dictionaries, used twice:
 //   Graphics → Clouds   (cloudhat_*.ytd, found automatically)
-//   Graphics → Blood FX (fxdecal.ytd / peddamagedecals.ytd, found automatically)
-//   Clothing Lab        (clothing .ytd files, folders or RPFs the player opens)
+//   Graphics → Blood FX (the blood FX .rpf the player chooses)
 // Brush, eraser, colour picker, paint bucket, colour adjustments, picture swap, undo
 // history. Install writes the textures back in their original format and size.
 
@@ -89,7 +88,7 @@ ${cfg.mode === 'files'
           </div>`;
 }
 
-/** One texture lab. cfg: { P: id prefix, kind: 'clouds'|'blood'|'clothes', mode: 'sources'|'files',
+/** One texture lab. cfg: { P: id prefix, kind: 'clouds'|'blood', mode: 'sources'|'files',
  *  active(): is its page showing, texts: { what, none } } */
 export function createLab(cfg) {
   const P = cfg.P;
@@ -484,7 +483,7 @@ export function createLab(cfg) {
     else { $('#' + P + '-empty').classList.remove('hidden'); $('#' + P + '-empty-title').textContent = 'These textures are locked'; $('#' + P + '-empty-text').textContent = 'They use a format this app cannot write yet (BC7 / ATI).'; }
   }
 
-  /** Clothing Lab: open .ytd files, folders or RPFs (picked, or dropped as paths). */
+  /** Files mode (Blood FX): open the RPF the player picks (or drops). */
   async function openFilesUI(paths) {
     if (!(await okToDrop())) return;
     const h = notify({ type: 'loading', title: 'Opening ' + cfg.texts.what + '…', message: 'Reading the textures.' });
@@ -502,7 +501,7 @@ export function createLab(cfg) {
     busy(btn, true);
     try {
       const r = await api.call('tex:saveFolder', cfg.kind, docs.map((d) => ({ key: d.item.key, texIndex: d.t.index, data: encodeDoc(d) })));
-      if (r) notify.success('Saved', r.count + ' texture file(s) in ' + r.dir + '. Put them in your server\'s stream folder, or press Install to use them in your own game.');
+      if (r) notify.success('Saved', r.count + ' file(s) in ' + r.dir + '. Press Install to use them in your own game.');
     } catch (e) { notify.error('Could not save', e.message); }
     busy(btn, false);
   }

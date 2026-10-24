@@ -1,4 +1,4 @@
-// World page: Water, Black mountains (visualsettings.dat), Snow (weather.xml), the
+// World page: Water, Black mountains and Player detail (visualsettings.dat), Snow (weather.xml), the
 // visual settings editor, and any custom tweaks the player added.
 import { notify } from './notify.js';
 import { icon } from './icons.js';
@@ -43,6 +43,20 @@ function mountainsCard(m) {
     ${far ? `<div class="slider-field"><span>Draw distance <b id="mtn-val">${fmt(m.value)}×</b></span><input type="range" id="mtn-dist" min="0.1" max="2" step="0.05" value="${m.value}" /></div>` : ''}
     ${m.packKeys.length ? `<div class="mtn-keys"><p class="label">Your pack's "${esc(m.packKeys[0].section)}" lines</p>${m.packKeys.map((k) => `<label class="mtn-key"><span class="mono">${esc(k.key)}</span><input type="number" step="any" data-key="${esc(k.key)}" value="${fmt(k.value)}" /></label>`).join('')}</div>` : ''}
     <div class="state">${seg(m.removed, !m.removed, 'Removed', 'Visible')}<span class="fine">${far ? 'Original: ' + fmt(m.original) + '×' : ''}</span></div>
+  </div>`;
+}
+
+function pedCard(p) {
+  if (!p || !p.available) {
+    return `<div class="card tweak unset" data-world="ped"><div class="tweak-top"><div class="tweak-icon">${icon('user')}</div>
+      <div><span class="big-state">Not found</span><h3>Player detail distance</h3><p>This is set in visualsettings.dat, and none was found in your citizen folder, your packs or GTA V. Link your citizen folder (Dashboard) and try again.</p></div></div></div>`;
+  }
+  const m = (v) => (v == null ? '?' : fmt(v) + ' m');
+  return `<div class="card tweak ${p.on ? 'on' : ''}" data-world="ped">
+    <div class="tweak-top"><div class="tweak-icon"><div class="wave"></div>${icon('user')}</div>
+      <div><span class="big-state">${p.on ? 'Fixed' : 'Default'}</span><h3>Player detail distance</h3>
+      <p>Players a few metres away turning into blocky low-detail models? That is the ped LOD distance in <code>visualsettings.dat</code> (many FPS packs cut it). Fix keeps everyone's full model out to ${m(p.fixed)}. Default puts your file back.</p></div></div>
+    <div class="state">${seg(p.on, !p.on, 'Fixed', 'Default')}<span class="fine">Full detail up to: ${m(p.now)}</span></div>
   </div>`;
 }
 
@@ -100,9 +114,10 @@ async function setMountains(opts, btn) {
 
 export async function refreshWorld() {
   const grid = $('#world-grid');
-  const [tweaks, m, sn, v] = await Promise.all([
+  const [tweaks, m, p, sn, v] = await Promise.all([
     api.call('tweaks:list').catch(() => []),
     api.call('world:mountains').catch(() => null),
+    api.call('world:pedLod').catch(() => null),
     api.call('world:snow').catch(() => null),
     api.call('world:visual').catch(() => null),
   ]);
@@ -110,7 +125,7 @@ export async function refreshWorld() {
   const water = own.find((t) => t.id === 'water');
   vs.entries = v && v.entries ? v.entries : [];
   vs.edits = {};
-  grid.innerHTML = (water ? tweakCard(water) : '') + mountainsCard(m) + snowCard(sn) + own.filter((t) => t.id !== 'water').map(tweakCard).join('') + vsCard(v);
+  grid.innerHTML = (water ? tweakCard(water) : '') + pedCard(p) + mountainsCard(m) + snowCard(sn) + own.filter((t) => t.id !== 'water').map(tweakCard).join('') + vsCard(v);
   stagger(grid);
   requestAnimationFrame(() => $$('.seg', grid).forEach(syncSeg));
   $$('input[type=range]', grid).forEach(fillRange);
@@ -149,6 +164,20 @@ export async function refreshWorld() {
     $$('.mtn-key input', mc).forEach((inp) => inp.addEventListener('change', () => {
       const keys = Object.fromEntries($$('.mtn-key input', mc).map((x) => [x.dataset.key, parseFloat(x.value)]).filter(([, val]) => Number.isFinite(val)));
       setMountains({ removed: true, distance: dist ? +dist.value : undefined, keys });
+    }));
+  }
+
+  // player detail distance
+  const pc = $('[data-world=ped]', grid);
+  if (p && p.available) {
+    $$('.seg button', pc).forEach((b) => (b.onclick = async () => {
+      const on = b.dataset.v === 'on';
+      if (on === p.on) return;
+      try {
+        const r = await api.call('world:setPedLod', on);
+        notify.success(r.on ? 'Player detail fixed' : 'Player detail back to default', r.on ? 'Players keep their full model out to ' + fmt(r.now) + ' m. Restart FiveM to see it.' : 'visualsettings.dat is back to how it was.');
+      } catch (e) { notify.error('Could not change player detail', e.message); }
+      refreshWorld();
     }));
   }
 
