@@ -411,7 +411,7 @@ async function enterEditor() {
 // =====================================================================
 
 const aip = {
-  spec: AI.emptySpec(), image: null, pack: null, result: null, log: [], hasKey: false, installedId: null,
+  spec: AI.emptySpec(), image: null, pack: null, result: null, log: [], hasKey: false, installed: null,
   hour: 12, playing: null, preview: null, busy: false, sky: null, // sky: { label, rel, tex, forImage, error }
 };
 
@@ -428,7 +428,7 @@ function greet() {
   bubble('ai', `<b>Hi! Tell me what you want your game to look like.</b><br>
     ${icon('image')} Add a <b>picture</b> and it becomes your sky.<br>
     ${icon('folder')} Add a <b>pack folder</b> (or drop a .zip) and I build on top of it.<br>
-    Then just say things like <i>add stars</i>, <i>bigger moon</i>, <i>no water</i>, <i>no trees</i>, <i>sunset colours</i> or <i>FPS boost</i>. Keep chatting to change it.`);
+    Then say what you want, like <i>pvp pack</i>, <i>always night</i>, <i>no fog</i>, <i>no sun</i>, <i>add stars</i>, <i>bigger moon</i>, <i>no water</i> or <i>max FPS</i>. I install it for you straight away, and <b>Undo</b> puts everything back.`);
 }
 
 async function refreshAiEngine() {
@@ -611,8 +611,8 @@ async function pickSkyFile() {
     if (!opened) return;
     const sk = await applySkyPicture(opened);
     if (sk.error) return bubble('ai', esc(sk.error));
-    if (aip.result) { aip.result.skyOk = true; showResult(); }
-    bubble('ai', `Done: your picture is now the sky texture (${esc(sk.tex.width + '×' + sk.tex.height)}). Press <b>Install pack</b> to use it.`);
+    if (aip.result) { aip.result.skyOk = true; showResult(); await installAi(); }
+    bubble('ai', `Got it: your picture is now the sky (${esc(sk.tex.width + '×' + sk.tex.height)}). Installing it now…`);
   } catch (e) { notify.error('Could not use that file', e.message); }
 }
 
@@ -662,18 +662,18 @@ async function generate() {
     }
 
     const files = await baseFiles();
-    const res = AI.buildPack(aip.spec, files);
     let skyOk = false;
     let sk = null;
     if (aip.spec.skyImage && aip.image) {
       sk = await applySkyPicture();
       skyOk = !sk.error;
-      // without the texture there is no sky picture to talk about
-      if (!skyOk) res.report = res.report.filter((r) => !/sky picture/i.test(r.text));
     }
+    // Without the sky texture, darkening the day sky would just leave it black:
+    // build with the picture's colours instead.
+    const res = AI.buildPack(skyOk || !aip.spec.skyImage ? aip.spec : { ...aip.spec, skyImage: null }, files);
     const lines = res.report.map((r) => `${r.ok ? '✓' : '!'} ${esc(r.text)}`);
     if (sk) {
-      lines.unshift(skyOk ? `✓ Your picture is now the sky (${esc(sk.tex.width + '×' + sk.tex.height)}) in ${esc(sk.label)}${/^@mods\//.test(sk.rel) ? ', which goes into your mods folder when you install' : ''}. GTA shows it at night with the stars${aip.spec.skyImage.allDay ? ', and I set it to show all day' : '; say <i>all day</i> to show it in the daytime too'}.` : '! ' + esc(sk.error) + (sk.canPick ? ' <button class="link-btn" data-act="pick-sky">Have a sky RPF or skydome.ytd? Choose it</button>' : ''));
+      lines.unshift(skyOk ? `✓ Your picture is now the sky (${esc(sk.tex.width + '×' + sk.tex.height)}) in ${esc(sk.label)}${/^@mods\//.test(sk.rel) ? ', and also as citizen/platform/textures/skydome.ytd' : ''}. ${aip.spec.skyImage.allDay ? '' : ' It shows at night.'}` : '! ' + esc(sk.error) + (sk.canPick ? ' <button class="link-btn" data-act="pick-sky">Have a sky RPF or skydome.ytd? Choose it</button>' : ''));
     }
 
     const tw = await api.call('tweaks:list');
@@ -694,7 +694,9 @@ async function generate() {
     }
     aip.result = { ...res, name: AI.packName(aip.spec), base: files, skyOk };
     showResult();
-    bubble('ai', `Here's <b>${esc(aip.result.name)}</b> <small>(${engine})</small>:<br>${lines.join('<br>')}<br><small>Check the preview, then press <b>Install pack</b>.</small>`);
+    bubble('ai', `Made <b>${esc(aip.result.name)}</b> <small>(${engine})</small>:<br>${lines.join('<br>')}`);
+    // The manager does the work: install straight away (Undo puts it all back).
+    if (Object.keys(res.files).length || Object.keys(res.tweaks).length || skyOk || aip.pack) await installAi();
   } catch (e) {
     bubble('ai', 'Something went wrong: ' + esc(e.message));
   } finally {
@@ -730,9 +732,13 @@ function drawAi() {
   const has = !!(aip.preview || showImg);
   $('#aip-empty').classList.toggle('hidden', has);
   if (has) {
-    drawScene(cv, aip.preview || { colours: [], scalars: [], params: [] }, aip.hour, showImg ? { image: aip.image.img, allDay: !!(aip.spec.skyImage && aip.spec.skyImage.allDay) } : null);
+    // "always night/day" packs look the same at every hour, so there is no clock to scrub
+    const lock = aip.spec.timeLock;
+    drawScene(cv, aip.preview || { colours: [], scalars: [], params: [] }, lock === 'night' ? 0 : lock === 'day' ? 12 : aip.hour, showImg ? { image: aip.image.img, allDay: !!(aip.spec.skyImage && aip.spec.skyImage.allDay) } : null);
   } else { const c = cv.getContext('2d'); c.clearRect(0, 0, cv.width, cv.height); }
-  $('#aip-tag').textContent = TC.hourLabel(aip.hour);
+  const lock = aip.spec.timeLock;
+  $('#aip-time-row').classList.toggle('hidden', !!lock);
+  $('#aip-tag').textContent = lock ? 'Always ' + lock : TC.hourLabel(aip.hour);
   $('#aip-hour-label').textContent = TC.hourLabel(aip.hour);
 }
 
@@ -751,24 +757,52 @@ function toggleAiPlay() {
   aip.playing = { raf: requestAnimationFrame(tick) };
 }
 
-async function installAi(btn) {
+const where = (rel) => (rel.startsWith('@mods/') ? 'mods/' + rel.slice(6) : 'citizen/' + rel);
+
+/** Install the current result. Runs by itself after Create; the button is only for retrying. */
+async function installAi() {
   const r = aip.result;
   if (!r) return;
+  const btn = $('#aip-install');
   busy(btn, true);
   try {
-    if (aip.installedId) { try { await api.call('tweaks:removeCustom', aip.installedId); } catch (e) { /* already gone */ } aip.installedId = null; }
+    await undoInstall({ quiet: true });
     const out = await api.call('pack:create', r.name, r.files, r.tweaks, { includePack: !!aip.pack, includeSky: !!r.skyOk });
-    aip.installedId = out.id;
-    const bits = [];
-    if (out.id) bits.push('pack is on');
-    if (out.applied.length) bits.push(out.applied.map((i) => AI.WORLD_LABEL[i]).join(', ') + ' switched');
-    notify.success('Pack installed', (bits.join(' · ') || 'Done') + '. Restart FiveM to see it.');
-    if (out.skipped.length) {
-      bubble('ai', 'Installed! I couldn\'t switch ' + out.skipped.map((s) => `<b>${esc(AI.WORLD_LABEL[s.id] || s.id)}</b>`).join(', ') + ' yet: load their removal files on the World page once, then ask me again.');
-    } else bubble('ai', `Installed <b>${esc(r.name)}</b>. You'll find it under <b>My packs</b>, where you can switch it off any time.`);
+    aip.installed = { id: out.id, tweaks: Object.fromEntries(out.applied.map((t) => [t, r.tweaks[t]])) };
+    const lines = [];
+    if (out.verified.length) lines.push(`✓ Checked on disk: your picture is in ${out.verified.map((x) => `<b>${esc(where(x))}</b>`).join(' and ')}`);
+    if (out.failed.length) lines.push(`! I couldn't write ${out.failed.map((x) => esc(where(x))).join(', ')}. If FiveM is open, close it fully and press <b>Install again</b>.`);
+    if (out.applied.length) lines.push('✓ ' + out.applied.map((t) => AI.WORLD_LABEL[t] + (r.tweaks[t] ? ' removed' : ' back')).join(', '));
+    for (const sk of out.skipped) lines.push(`! ${esc(AI.WORLD_LABEL[sk.id] || sk.id)}: ${esc(sk.reason)}`);
+    bubble('ai', `<b>Installed${out.failed.length ? ' (with a problem)' : ''}.</b> Restart FiveM to see it.${lines.length ? '<br>' + lines.join('<br>') : ''}<br><small>Not happy? Press <b>Undo</b> and everything goes back.</small>`);
+    notify[out.failed.length ? 'warning' : 'success'](out.failed.length ? 'Installed, but a file could not be written' : 'Pack installed', out.failed.length ? 'Close FiveM and press Install again.' : 'Restart FiveM to see it.');
+    paintInstallState();
     ctx.refreshGraphics && ctx.refreshGraphics();
-  } catch (e) { notify.error('Could not install pack', e.message); }
+  } catch (e) {
+    bubble('ai', `! I couldn't install it: ${esc(e.message)}. If FiveM is open, close it and press <b>Install again</b>.`);
+    notify.error('Could not install pack', e.message);
+  }
   busy(btn, false);
+}
+
+/** Take the last AI pack out again and put any world switches back. */
+async function undoInstall({ quiet = false } = {}) {
+  const inst = aip.installed;
+  if (!inst) return;
+  aip.installed = null;
+  try {
+    if (inst.id) await api.call('tweaks:removeCustom', inst.id);
+    for (const [t, on] of Object.entries(inst.tweaks)) await api.call('tweaks:set', t, !on).catch(() => {});
+    if (!quiet) { bubble('ai', 'Undone: the pack is out of your game and everything is back how it was.'); notify.success('Undone', 'Your game is back how it was.'); }
+  } catch (e) { if (!quiet) notify.error('Undo failed', e.message); }
+  paintInstallState();
+  ctx.refreshGraphics && ctx.refreshGraphics();
+}
+
+function paintInstallState() {
+  const on = !!aip.installed;
+  $('#aip-undo').classList.toggle('hidden', !on);
+  $('#aip-install').innerHTML = icon('zap') + (on ? 'Install again' : 'Install');
 }
 
 async function editAiResult() {
@@ -795,7 +829,7 @@ function initAi() {
   $('#aip-img-clear').onclick = clearImage;
   $('#aip-pack-clear').onclick = clearPack;
   $('#aip-reset').onclick = async () => {
-    aip.spec = AI.emptySpec(); aip.result = null; aip.preview = null; aip.installedId = null; aip.sky = null;
+    aip.spec = AI.emptySpec(); aip.result = null; aip.preview = null; aip.installed = null; aip.sky = null; paintInstallState();
     clearImage(); if (aip.pack) { await api.call('gfx:clearPack').catch(() => {}); aip.pack = null; $('#aip-pack').classList.add('hidden'); }
     greet(); $('#aip-examples').classList.remove('hidden');
     $('#aip-spec').innerHTML = ''; $('#aip-report').innerHTML = ''; $('#aip-status').textContent = 'Nothing made yet';
@@ -803,7 +837,8 @@ function initAi() {
   };
   $('#aip-hour').addEventListener('input', (e) => { if (aip.playing) toggleAiPlay(); aip.hour = +e.target.value; drawAi(); });
   $('#aip-play').onclick = toggleAiPlay;
-  $('#aip-install').onclick = (e) => installAi(e.currentTarget);
+  $('#aip-install').onclick = () => installAi();
+  $('#aip-undo').onclick = () => undoInstall();
   $('#aip-edit').onclick = editAiResult;
   greet();
 }

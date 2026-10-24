@@ -10,7 +10,7 @@ const extras = require('./src/core/extras');
 const rpf = require('./src/core/rpf');
 const { AiKey, askClaude } = require('./src/core/ai');
 const { describePack, editableTimecycles, createPackWithTweaks } = require('./src/core/gfxpack');
-const { findGtaDirs } = require('./src/core/skytex');
+const { findGtaDirs, DEFAULT_REL: SKY_REL } = require('./src/core/skytex');
 const { openSkySource, skySources } = require('./src/core/skysource');
 const { GtaKeys, findAesKey, findGtaExes } = require('./src/core/ngcrypto');
 
@@ -247,7 +247,11 @@ app.whenReady().then(() => {
   handle('sky:apply', (index, data) => {
     if (!sky) throw new Error('Open a sky texture first.');
     sky.out = sky.obj.replace(index, Buffer.from(data));
-    return { bytes: sky.out.length, rel: sky.rel };
+    // FiveM loads the sky from citizen/platform/textures/skydome.ytd. When the sky came
+    // from an RPF, write that too, so the picture shows whichever one the game uses.
+    sky.outputs = { [sky.rel]: sky.out };
+    if (sky.rel !== SKY_REL) sky.outputs[SKY_REL] = sky.obj.ytdBytes();
+    return { bytes: sky.out.length, rel: sky.rel, outputs: Object.keys(sky.outputs) };
   });
   handle('sky:export', async () => {
     if (!sky || !sky.out) throw new Error('Nothing to export yet.');
@@ -262,8 +266,8 @@ app.whenReady().then(() => {
   handle('pack:create', (name, edits, tweaks = {}, opts = {}) => createPackWithTweaks(mgr, name, edits, tweaks, {
     ...opts,
     staged: opts.includePack && gfxPack ? gfxPack.staged : [],
-    extra: opts.includeSky && sky && sky.out ? { [sky.rel]: sky.out } : {},
-  }));
+    extra: opts.includeSky && sky && sky.outputs ? sky.outputs : {},
+  }, (rel) => fs.readFileSync(mgr.absFor(rel))));
   const IMG_TYPES = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.bmp': 'image/bmp' };
   const readImage = (f) => {
     const type = IMG_TYPES[path.extname(f).toLowerCase()];

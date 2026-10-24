@@ -195,13 +195,14 @@
 
             <div class="card aip-result">
               <div class="card-title row-between"><h3>Preview</h3><small id="aip-status">Nothing made yet</small></div>
-              <div class="aip-view"><canvas id="aip-canvas"></canvas><span class="tce-tag" id="aip-tag">12:00</span><div class="tce-empty" id="aip-empty"><i data-icon="sparkles"></i><b>Your pack shows up here</b><small>Describe it on the left. Drag the time slider to see day and night.</small></div></div>
-              <div class="tce-time"><button class="icon-btn" id="aip-play" title="Play a day"><i data-icon="play"></i></button><input type="range" id="aip-hour" min="0" max="24" step="0.05" value="12" /><b class="mono" id="aip-hour-label">12:00</b></div>
+              <div class="aip-view"><canvas id="aip-canvas"></canvas><span class="tce-tag" id="aip-tag">12:00</span><div class="tce-empty" id="aip-empty"><i data-icon="sparkles"></i><b>Your pack shows up here</b><small>Describe it on the left.</small></div></div>
+              <div class="tce-time" id="aip-time-row"><button class="icon-btn" id="aip-play" title="Play a day"><i data-icon="play"></i></button><input type="range" id="aip-hour" min="0" max="24" step="0.05" value="12" /><b class="mono" id="aip-hour-label">12:00</b></div>
               <div class="aip-spec" id="aip-spec"></div>
               <ul class="aip-report" id="aip-report"></ul>
               <div class="row-end">
+                <button class="btn ghost hidden" id="aip-undo"><i data-icon="undo"></i>Undo</button>
                 <button class="btn ghost" id="aip-edit" disabled><i data-icon="sliders"></i>Fine-tune</button>
-                <button class="btn primary" id="aip-install" disabled><i data-icon="zap"></i>Install pack</button>
+                <button class="btn ghost" id="aip-install" disabled><i data-icon="zap"></i>Install</button>
               </div>
             </div>
           </div>

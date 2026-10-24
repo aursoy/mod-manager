@@ -326,6 +326,14 @@ const NAMES = {
   light_ray_mult: 'Light rays',
   postfx_exposure: 'Exposure',
   fog_start: 'Fog start distance',
+  fog_density: 'Fog thickness',
+  fog_base_height: 'Fog height',
+  postfx_intensity_bloom: 'Glow (bloom)',
+  postfx_bright_pass_thresh: 'Glow threshold',
+  cloud_base_strength: 'Clouds strength',
+  cloud_shadow_strength: 'Cloud shadows',
+  dof_blur_far: 'Distance blur',
+  dof_far: 'Distance blur starts at',
 };
 
 /** Human name for a timecycle tag ("sky_zenith_col_inten" -> "Sky colour (top) brightness"). */

@@ -321,8 +321,9 @@ test('ai: adjustments scale only matching values and never fog_start', async () 
   assert.ok(val(sec, 'sky_sun_disc_size')[0] > 2.5);
   assert.deepStrictEqual(val(sec, 'fog_start'), val(orig, 'fog_start'), 'fog_start is a distance, not an amount');
   assert.deepStrictEqual(val(sec, 'sky_moon_iten'), val(orig, 'sky_moon_iten'));
-  const fog = res.report.find((r) => r.text.startsWith('Fog'));
-  assert.strictEqual(fog.ok, false, 'reports plainly when nothing matched');
+  assert.ok(val(sec, 'fog_density').every((v) => v === 0), 'no fog = fog thickness 0');
+  const moon = ai.buildPack(ai.mergeSpec(ai.emptySpec(), ai.parsePrompt('smaller glow')), { a: '<a><cycle name="X"><region name="GLOBAL"><x>1 1</x></region></cycle></a>' });
+  assert.strictEqual(moon.report[0].ok, false, 'reports plainly when nothing matched');
 });
 
 test('ai: sky picture keeps star intensity on at night, all-day mode darkens the day sky', async () => {
@@ -339,14 +340,14 @@ test('ai: sky picture keeps star intensity on at night, all-day mode darkens the
   const z1 = tc.colourAt(tc.parse(xml).sections[0].colours.find((c) => c.role === 'zenith'), 4);
   const z2 = tc.colourAt(s2.colours.find((c) => c.role === 'zenith'), 4);
   assert.ok(tc.lum(z2) < tc.lum(z1) * 0.3);
-  assert.ok(day.report.some((r) => /all day/.test(r.text)));
+  assert.ok(day.report.some((r) => /all the time/.test(r.text)));
 });
 
 test('ai: validateSpec keeps valid adjustments and the sky picture flag', async () => {
   const ai = await aiP;
   const s = ai.validateSpec({ adjust: { stars: 'more', moon: 'explode', hack: 'none' }, skyImage: { allDay: 'yes' } });
   assert.deepStrictEqual(s.adjust, { stars: 'more' });
-  assert.deepStrictEqual(s.skyImage, { allDay: false });
+  assert.deepStrictEqual(s.skyImage, { allDay: true }, 'the picture shows all the time unless told otherwise');
 });
 
 const { YtdFile } = require('../src/core/skytex');
@@ -545,4 +546,73 @@ test('a sky RPF already in the mods folder is edited, and the original comes bac
   assert.notDeepStrictEqual(fs.readFileSync(path.join(mods, 'weather_sky.rpf')), original);
   m.setTweak(res.id, false);
   assert.deepStrictEqual(fs.readFileSync(path.join(mods, 'weather_sky.rpf')), original, 'the player\'s own sky rpf is put back exactly');
+});
+
+test('real-shaped sky RPF (content/x.rpf/x64/y.rpf/skydome.ytd, 1024² DXT1): the picture really ends up in the file', async () => {
+  const dxt = await import('../renderer/js/dxt.js');
+  const stored = buildYtd(['baseperlinnoise3channel', 'dither', 'moon-new', 'noise16_p', 'starfield'], 1024, 1024);
+  const ytdRes = { type: 'res', name: 'skydome.ytd', stored, sysFlags: stored.readUInt32LE(8), gfxFlags: stored.readUInt32LE(12) };
+  const inner = rpf.writeRpf({ type: 'dir', name: '', children: [{ type: 'dir', name: 'x64', children: [{ type: 'bin', name: 'opallinio_bbv.rpf', stored: rpf.writeRpf({ type: 'dir', name: '', children: [ytdRes] }), compressed: false, size: 0 }] }] });
+  // fix size of the nested bin entry
+  const innerRoot = rpf.readRpf(inner);
+  const deep = innerRoot.children[0].children[0];
+  rpf.setBinaryData(deep, rpf.getBinaryData(deep), false);
+  const middle = rpf.writeRpf(innerRoot);
+  const outer = rpf.writeRpf({ type: 'dir', name: '', children: [{ type: 'dir', name: 'content', children: [{ type: 'bin', name: 'opallinio_bbv.rpf', stored: middle, compressed: false, size: middle.length }] }] });
+
+  const sky = new RpfSky(outer, 'clouds.rpf');
+  assert.strictEqual(sky.path, 'content/opallinio_bbv.rpf/x64/opallinio_bbv.rpf/skydome.ytd');
+  const i = sky.skyIndex();
+  const t = sky.textures[i];
+  assert.deepStrictEqual([t.name, t.width, t.height, t.format], ['starfield', 1024, 1024, 'DXT1']);
+
+  // a picture: purple top fading to orange bottom, with a white square in the middle
+  const w = 1024, h = 1024;
+  const px = new Uint8ClampedArray(w * h * 4);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const k = (y * w + x) * 4; const f = y / h;
+    const sq = x > 400 && x < 624 && y > 400 && y < 624;
+    px[k] = sq ? 255 : 120 + 120 * f; px[k + 1] = sq ? 255 : 30 + 90 * f; px[k + 2] = sq ? 255 : 200 - 160 * f; px[k + 3] = 255;
+  }
+  const out = sky.replace(i, dxt.encode('DXT1', px, w, h));
+
+  const back = new RpfSky(out, 'clouds.rpf').describe(true);
+  const star = back.find((x) => x.name === 'starfield');
+  const dec = dxt.decode('DXT1', star.data, w, h);
+  let err = 0;
+  for (let k = 0; k < px.length; k += 4) err += Math.abs(dec[k] - px[k]) + Math.abs(dec[k + 1] - px[k + 1]) + Math.abs(dec[k + 2] - px[k + 2]);
+  assert.ok(err / (w * h * 3) < 8, 'decoded starfield matches the picture (mean error ' + (err / (w * h * 3)).toFixed(2) + ')');
+  assert.ok(dec[(512 * w + 512) * 4] > 240, 'the white square is there');
+  assert.ok(back.find((x) => x.name === 'moon-new').data.every((b) => b === 0x33), 'other textures untouched');
+  assert.strictEqual(sky.ytdBytes().length > 0, true, 'the edited skydome.ytd is also available on its own');
+});
+
+test('ai: PvP, always night, no sun', async () => {
+  const ai = await aiP;
+  const tc = await tcP;
+  let p = ai.parsePrompt('make me a pvp pack');
+  assert.strictEqual(p.mood, 'pvp');
+  assert.strictEqual(p.fps, 2);
+  assert.deepStrictEqual(p.adjust, { fog: 'none', bloom: 'none', blur: 'none' });
+  const pv = ai.buildPack(ai.mergeSpec(ai.emptySpec(), p), { a: buildTimecycle() });
+  const ps = tc.parse(pv.files.a).sections[0];
+  const v = (n) => ps.scalars.find((x) => x.name === n).values;
+  assert.ok(v('fog_density').every((x) => x === 0) && v('postfx_intensity_bloom').every((x) => x === 0) && v('dof_blur_far').every((x) => x === 0), 'pvp: no fog, no glow, no blur');
+  assert.ok(v('dof_far').every((x) => x === 800), 'distances are left alone');
+  assert.ok(p.grade.saturation > 1);
+  assert.strictEqual(ai.parsePrompt('always night, purple sky').timeLock, 'night');
+  assert.strictEqual(ai.parsePrompt('no daytime please').timeLock, 'night');
+  assert.strictEqual(ai.parsePrompt('only day').timeLock, 'day');
+  assert.strictEqual(ai.parsePrompt('my picture as the sky').imageAllDay, true);
+  assert.strictEqual(ai.parsePrompt('my picture as the sky only at night').imageAllDay, false);
+
+  const xml = buildTimecycle();
+  const res = ai.buildPack(ai.mergeSpec(ai.emptySpec(), ai.parsePrompt('always night, no sun')), { a: xml });
+  const sec = tc.parse(res.files.a).sections[0];
+  for (const p2 of sec.params) assert.ok(p2.values.every((v) => v === p2.values[0]), p2.name + ' is the same at every hour');
+  const zen = sec.colours.find((c) => c.name === 'sky_zenith_col');
+  const orig = tc.parse(xml).sections[0].colours.find((c) => c.name === 'sky_zenith_col');
+  assert.ok(tc.lum(tc.colourAt(zen, 4)) < tc.lum(tc.colourAt(orig, 4)) * 0.3, 'noon is now night-dark');
+  assert.ok(sec.scalars.find((p2) => p2.name === 'sky_sun_disc_size').values.every((v) => v === 0), 'no sun = no sun disc');
+  assert.ok(res.report.some((r) => /Always night/.test(r.text)));
 });
