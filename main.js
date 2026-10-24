@@ -7,11 +7,12 @@ const { GunPack } = require('./src/core/gunpack');
 const { SoundPack } = require('./src/core/soundpack');
 const { DiscordRpc } = require('./src/core/discord');
 const extras = require('./src/core/extras');
+const { Appearance } = require('./src/core/appearance');
 const rpf = require('./src/core/rpf');
-const { AiKey, askClaude } = require('./src/core/ai');
 const { describePack, editableTimecycles, createPackWithTweaks } = require('./src/core/gfxpack');
 const { findGtaDirs, DEFAULT_REL: SKY_REL } = require('./src/core/skytex');
 const { openSkySource, skySources } = require('./src/core/skysource');
+const { listCloudSources, openCloudSource } = require('./src/core/clouds');
 const { GtaKeys, findAesKey, findGtaExes } = require('./src/core/ngcrypto');
 
 app.setName('Kt Mod Manager');
@@ -190,7 +191,6 @@ app.whenReady().then(() => {
   handle('colour:base', (rel) => mgr.tintBase(rel));
 
   // ----- timecycle editor / graphics AI -----
-  const aiKey = new AiKey(path.join(app.getPath('userData'), 'data', 'ai.json'));
   handle('timecycle:read', (rel, opts) => mgr.readTimecycle(rel, opts));
   handle('timecycle:write', (rel, xml) => mgr.writeTimecycle(rel, xml));
   handle('timecycle:open', async (given) => {
@@ -253,6 +253,21 @@ app.whenReady().then(() => {
     if (sky.rel !== SKY_REL) sky.outputs[SKY_REL] = sky.obj.ytdBytes();
     return { bytes: sky.out.length, rel: sky.rel, outputs: Object.keys(sky.outputs) };
   });
+  // ----- cloud editor -----
+  let clouds = null;
+  handle('clouds:list', () => listCloudSources(skyCtx()));
+  handle('clouds:open', async (id) => {
+    clouds = await openCloudSource(id, skyCtx());
+    return { label: clouds.label, items: clouds.items.map((x) => ({ key: x.key, name: x.name, file: x.file, path: x.path, textures: x.ytd.describe(true) })) };
+  });
+  handle('clouds:install', (edits) => {
+    if (!clouds) throw new Error('Open your clouds first.');
+    for (const e of edits) clouds.replace(e.key, e.texIndex, Buffer.from(e.data));
+    const outputs = clouds.outputs();
+    if (!Object.keys(outputs).length) throw new Error('Change a cloud first.');
+    return createPackWithTweaks(mgr, 'Custom clouds', {}, {}, { extra: outputs }, (rel) => fs.readFileSync(mgr.absFor(rel)));
+  });
+
   handle('sky:export', async () => {
     if (!sky || !sky.out) throw new Error('Nothing to export yet.');
     const r = await dialog.showSaveDialog(win, { title: 'Export sky texture', defaultPath: path.basename(sky.rel), filters: [{ name: 'Sky file', extensions: [path.extname(sky.rel).slice(1)] }] });
@@ -280,9 +295,6 @@ app.whenReady().then(() => {
     return r.canceled ? null : readImage(r.filePaths[0]);
   });
   handle('gfx:readImage', (f) => readImage(f));
-  handle('ai:status', () => ({ hasKey: !!aiKey.get() }));
-  handle('ai:setKey', (key) => ({ hasKey: aiKey.set(key) }));
-  handle('ai:ask', (req) => askClaude({ key: aiKey.get(), system: req.system, prompt: req.prompt, image: req.image }));
 
   handle('backups:list', () => mgr.listBackups());
   handle('backups:restoreAll', () => mgr.restoreAll());
@@ -311,6 +323,19 @@ app.whenReady().then(() => {
     }
     return p;
   });
+
+  // ----- custom background -----
+  const look = new Appearance(mgr, path.join(app.getPath('userData'), 'data'));
+  handle('look:get', () => look.load());
+  handle('look:pick', async () => {
+    const r = await dialog.showOpenDialog(win, { title: 'Choose a background', properties: ['openFile'], filters: [{ name: 'Pictures and videos', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'mp4', 'webm'] }] });
+    if (r.canceled) return null;
+    look.setFile(r.filePaths[0]);
+    return look.load();
+  });
+  handle('look:file', (file) => { look.setFile(file); return look.load(); });
+  handle('look:set', (patch) => look.set(patch));
+  handle('look:clear', () => look.clear());
 
   // ----- profile / discord -----
   handle('profile:get', () => ({ ...mgr.getProfile(), discordLive: !!discord.sock }));

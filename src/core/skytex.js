@@ -144,4 +144,42 @@ function findGtaDirs({ citizenPath = null, knownExe = null, exes = [] } = {}) {
   return out;
 }
 
-module.exports = { YtdFile, RpfSky, rpfHasSky, skydomeFromGame, findGtaDirs, DEFAULT_REL };
+/** Every resource matching test(name) in an RPF tree, nested RPFs included. */
+function findAll(root, test, prefix = '') {
+  const out = [];
+  rpf.walk(root, (e, p) => {
+    const full = prefix ? prefix + '/' + p : p;
+    if (e.type === 'res' && test(e.name)) out.push({ entry: e, path: full });
+    if (e.type === 'bin' && /\.rpf$/i.test(e.name)) {
+      try {
+        e.nested = e.nested || rpf.readRpf(rpf.getBinaryData(e), e.name);
+        out.push(...findAll(e.nested, test, full));
+      } catch (err) { if (err.code === rpf.NEED_KEYS) throw err; }
+    }
+  });
+  return out;
+}
+
+/** Several texture dictionaries inside one RPF (e.g. all the cloud hats), edited in place. */
+class RpfTextures {
+  constructor(buf, label, test) {
+    this.label = label;
+    this.root = rpf.readRpf(buf, label);
+    this.hits = findAll(this.root, test);
+    if (!this.hits.length) throw new Error(label + ' has none of those textures.');
+    this.ytds = this.hits.map((h) => new YtdFile(h.entry.stored, h.entry.name));
+    this.edited = false;
+  }
+
+  replace(i, texIndex, data) {
+    this.hits[i].entry.stored = this.ytds[i].replace(texIndex, data);
+    this.edited = true;
+  }
+
+  bytes() {
+    rebuildNested(this.root);
+    return rpf.writeRpf(this.root);
+  }
+}
+
+module.exports = { YtdFile, RpfSky, RpfTextures, findAll, rpfHasSky, skydomeFromGame, findGtaDirs, DEFAULT_REL };

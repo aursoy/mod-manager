@@ -129,3 +129,18 @@ test('presets restore tweak + colour state', () => {
   assert.ok(fs.existsSync(path.join(cit, 'common', 'data', 'levels', 'gta5', 'water.xml')));
   assert.ok(fs.readFileSync(path.join(cit, 'common', 'data', 'timecycle', 'w_clear.xml'), 'utf8').includes('<sky_zenith_col_g>0</sky_zenith_col_g>'));
 });
+
+test('sound banks say which gun they are for', () => {
+  const { gunName, streamName } = require('../src/core/gunnames');
+  const cases = {
+    ptl_pistol: 'Pistol', ptl_combat: 'Combat Pistol', ptl_50cal: 'Pistol .50', ptl_heavy: 'Heavy Pistol', ptl_sns: 'SNS Pistol',
+    smg_micro: 'Micro SMG', smg_smg: 'SMG', smg_assault: 'Assault SMG', rifle_assault: 'Assault Rifle', rifle_carbine: 'Carbine Rifle',
+    rifle_advanced: 'Advanced Rifle', sht_pump: 'Pump Shotgun', sht_sawnoff: 'Sawed-Off Shotgun', snp_heavy: 'Heavy Sniper',
+    snp_rifle: 'Sniper Rifle', lmg_combat: 'Combat MG', lmg_mg: 'MG', spl_minigun_player: 'Minigun', spl_rpg_player: 'RPG',
+    spl_grenade_player: 'Grenade', ptl_pistol_silenced: 'Pistol (suppressed)',
+  };
+  for (const [bank, gun] of Object.entries(cases)) assert.strictEqual(gunName(bank), gun, bank);
+  for (const other of ['foot_concrete', 'frontend_menu', 'stunt_jump', 'ambience_city']) assert.strictEqual(gunName(other), null, other);
+  assert.strictEqual(streamName(0x0f4dfcd5), 'Pistol');
+  assert.strictEqual(streamName(0x12345678), null);
+});

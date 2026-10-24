@@ -172,9 +172,11 @@ function renderArchives() {
 
 function renderBanks() {
   const q = $('#bank-search').value.trim().toLowerCase();
-  const list = state.banks.filter((b) => (cat === 'all' || b.category === cat) && (!q || b.name.toLowerCase().includes(q) || b.path.toLowerCase().includes(q)));
+  const list = state.banks.filter((b) => (cat === 'all' || b.category === cat) && (!q || b.name.toLowerCase().includes(q) || (b.gun || '').toLowerCase().includes(q) || b.path.toLowerCase().includes(q)))
+    // guns first, sorted by gun name, so the same gun's banks sit together
+    .sort((a, b) => (a.gun ? 0 : 1) - (b.gun ? 0 : 1) || (a.gun || a.name).localeCompare(b.gun || b.name));
   $('#bank-list').innerHTML = list.length
-    ? list.slice(0, 600).map((b) => `<li data-id="${b.id}" class="${b.id === bankId ? 'on' : ''}" title="${esc(b.path)}"><span class="tag">${CAT_LABEL[b.category]}</span><b>${esc(b.name)}</b>${b.edits ? '<i class="ed"></i>' : ''}</li>`).join('')
+    ? list.slice(0, 600).map((b) => `<li data-id="${b.id}" class="${b.id === bankId ? 'on' : ''}" title="${esc(b.path)}"><span class="tag">${CAT_LABEL[b.category]}</span><b>${esc(b.gun || b.name)}${b.gun ? `<small class="bank-raw">${esc(b.name)}</small>` : ''}</b>${b.edits ? '<i class="ed"></i>' : ''}</li>`).join('')
       + (list.length > 600 ? `<li class="empty">${list.length - 600} more. Search to narrow.</li>` : '')
     : '<li class="empty">No banks match.</li>';
   $$('#bank-list li[data-id]').forEach((li) => (li.onclick = () => selectBank(+li.dataset.id)));
@@ -182,13 +184,13 @@ function renderBanks() {
 
 function renderStreams() {
   const b = state.banks.find((x) => x.id === bankId);
-  $('#bank-title').textContent = b ? b.name : 'Pick a bank';
-  $('#bank-meta').textContent = b ? `${streams.length} sound(s) · ${b.path}` : '';
+  $('#bank-title').textContent = b ? (b.gun ? b.gun + ' sounds' : b.name) : 'Pick a bank';
+  $('#bank-meta').textContent = b ? `${streams.length} sound(s) · ${b.gun ? b.name + ' · ' : ''}${b.path}` : '';
   const longest = Math.max(0.001, ...streams.map((s) => s.seconds));
   $('#stream-list').innerHTML = streams.length
     ? streams.map((s, i) => `<li data-id="${s.id}" class="${s.id === streamId ? 'on' : ''}" style="animation-delay:${Math.min(i, 20) * 20}ms">
         <button class="pbtn" data-play="${s.id}" ${s.playable ? '' : 'disabled'}>${icon('play')}</button>
-        <div><b>${s.hex}</b>${s.edited ? ' <span class="tag solid">Edited</span>' : ''}<br><small>${fmtTime(s.seconds)} · ${s.rate} Hz · ${s.codec}</small></div>
+        <div><b>${s.gun ? esc(s.gun) + ' shot' : (b && b.gun ? esc(b.gun) + ' · sound ' + (i + 1) : 'Sound ' + (i + 1))}</b> <small class="mono">${s.hex}</small>${s.edited ? ' <span class="tag solid">Edited</span>' : ''}<br><small>${fmtTime(s.seconds)} · ${s.rate} Hz · ${s.codec}</small></div>
         <span class="dur"><i style="width:${(s.seconds / longest) * 100}%"></i></span>
         <span></span>
       </li>`).join('')

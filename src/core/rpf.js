@@ -62,7 +62,7 @@ function readName(names, offset) {
  * Nested .rpf files stay as 'bin' entries; open them with readRpf(getBinaryData(e), e.name).
  * `name` is the archive's file name (used to derive its NG key).
  */
-function readRpf(buf, name = '') {
+function readRpf(buf, name = '', fileSize = buf.length) {
   if (buf.length < 16) throw new RpfError('File is too small to be an RPF archive.');
   const magic = buf.readUInt32LE(0);
   if (magic !== RPF7_MAGIC) throw new RpfError('Not an RPF7 archive (bad magic).');
@@ -83,7 +83,7 @@ function readRpf(buf, name = '') {
       eb = keys.decryptAES(eb);
       names = keys.decryptAES(names);
     } else {
-      const k = keys.pickKey(eb, name, buf.length, (h) => h.readUInt32LE(4) === DIR_IDENT && h.readUInt32LE(8) === 1);
+      const k = keys.pickKey(eb, name, fileSize, (h) => h.readUInt32LE(4) === DIR_IDENT && h.readUInt32LE(8) === 1);
       eb = keys.decryptNG(eb, k);
       names = keys.decryptNG(names, k);
     }
@@ -118,6 +118,8 @@ function readRpf(buf, name = '') {
         compressed: fileSize !== 0,
         size: uncompressed,
       };
+      // where the data sits in the file, for reading entries straight from disk (rpfscan.js)
+      Object.defineProperty(e, 'at', { value: { start, len }, enumerable: false });
       if (encType === 1) {
         if (!keys) throw new RpfError('This RPF has encrypted files. Unlock encrypted RPFs with your GTA V install first.', NEED_KEYS);
         e.enc = { mode: encryption === ENC_AES ? 'aes' : 'ng', size: uncompressed };
@@ -136,13 +138,15 @@ function readRpf(buf, name = '') {
         fileSize = (h[7] << 0) | (h[14] << 8) | (h[5] << 16) | (h[2] << 24);
         fileSize >>>= 0;
       }
-      raw.push({
+      const r = {
         type: 'res',
         name: readName(names, nameOffset),
         stored: buf.subarray(start, start + fileSize),
         sysFlags,
         gfxFlags,
-      });
+      };
+      Object.defineProperty(r, 'at', { value: { start, len: fileSize }, enumerable: false });
+      raw.push(r);
     }
   }
   if (!raw.length || raw[0].type !== 'dir') throw new RpfError('RPF has no root directory.');

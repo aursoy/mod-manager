@@ -25,6 +25,7 @@
     </div>
   </div>
 
+  <div id="custom-bg"><div class="cbg-media" id="cbg-media"></div><div class="cbg-dim" id="cbg-dim"></div></div>
   <canvas id="bg"></canvas>
   <div class="grain"></div>
   <div class="cursor-glow"></div>
@@ -131,6 +132,7 @@
             <div class="seg gfx-tabs" id="gfx-tabs">
               <button data-pane="packs" class="on"><i data-icon="package"></i>My packs</button>
               <button data-pane="ai"><i data-icon="sparkles"></i>Create with AI</button>
+              <button data-pane="clouds"><i data-icon="cloud"></i>Clouds</button>
               <button data-pane="editor"><i data-icon="sliders"></i>Advanced editor</button>
               <i class="seg-thumb"></i>
             </div>
@@ -178,7 +180,7 @@
           <div class="aip">
             <div class="card aip-chat">
               <div class="aip-head">
-                <div><h3>Pack AI</h3><small id="aip-engine" class="mono">Built-in</small></div>
+                <div><h3>Pack AI</h3><small id="aip-engine" class="mono">Works offline</small></div>
                 <button class="btn ghost sm" id="aip-reset"><i data-icon="undo"></i>Start over</button>
               </div>
               <div class="aip-log" id="aip-log"></div>
@@ -204,6 +206,73 @@
                 <button class="btn ghost" id="aip-edit" disabled><i data-icon="sliders"></i>Fine-tune</button>
                 <button class="btn ghost" id="aip-install" disabled><i data-icon="zap"></i>Install</button>
               </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Cloud editor -->
+        <div class="gfx-pane hidden" data-pane="clouds">
+          <div class="card cl-top">
+            <label class="ted-field grow"><span>Clouds from</span><select id="cl-source" class="tc-select"></select></label>
+            <button class="btn ghost sm" id="cl-rescan"><i data-icon="search"></i>Look again</button>
+            <span class="cl-sep"></span>
+            <button class="icon-btn" id="cl-undo" title="Undo (Ctrl+Z)"><i data-icon="undo"></i></button>
+            <button class="icon-btn" id="cl-redo" title="Redo (Ctrl+Y)"><i data-icon="redo"></i></button>
+            <button class="btn ghost sm" id="cl-compare" title="Hold to see the original"><i data-icon="eye"></i>Hold to compare</button>
+            <span class="tag" id="cl-dirty">No changes</span>
+            <button class="btn ghost sm hidden" id="cl-uninstall"><i data-icon="undo"></i>Undo install</button>
+            <button class="btn primary sm" id="cl-install" disabled><i data-icon="zap"></i>Install clouds</button>
+          </div>
+
+          <div class="cl-work">
+            <div class="card cl-tools" id="cl-tools">
+              <button data-tool="hand" title="Move around (H, or hold Space)"><i data-icon="hand"></i></button>
+              <button data-tool="brush" class="on" title="Brush (B)"><i data-icon="brush"></i></button>
+              <button data-tool="eraser" title="Eraser (E)"><i data-icon="eraser"></i></button>
+              <button data-tool="picker" title="Pick a colour (I)"><i data-icon="pipette"></i></button>
+              <button data-tool="fill" title="Paint bucket (G)"><i data-icon="bucket"></i></button>
+              <span class="cl-tsep"></span>
+              <button data-act="fit" title="Fit to screen (0)"><i data-icon="maximize"></i></button>
+              <button data-act="100" title="Actual size (1)"><span class="mono">1:1</span></button>
+            </div>
+
+            <div class="card cl-stage" id="cl-stage">
+              <canvas id="cl-view"></canvas>
+              <div class="tce-empty" id="cl-empty"><i data-icon="cloud"></i><b id="cl-empty-title">Looking for your clouds…</b><small id="cl-empty-text">Checking your pack, your mods folder, citizen and GTA V.</small></div>
+              <div class="cl-status" id="cl-status"></div>
+            </div>
+
+            <div class="cl-side">
+              <div class="card cl-panel"><h4>Cloud hats</h4><ul class="cl-list" id="cl-list"></ul></div>
+              <div class="card cl-panel">
+                <h4>Brush</h4>
+                <div class="cl-colour"><input type="color" id="cl-color" value="#ffffff" /><div class="cl-swatches" id="cl-swatches"></div></div>
+                <div class="slider-field"><span>Size <b id="cl-size-val">40px</b></span><input type="range" id="cl-size" min="1" max="400" value="40" /></div>
+                <div class="slider-field"><span>Softness <b id="cl-soft-val">50%</b></span><input type="range" id="cl-soft" min="0" max="100" value="50" /></div>
+                <div class="slider-field"><span>Strength <b id="cl-opacity-val">60%</b></span><input type="range" id="cl-opacity" min="1" max="100" value="60" /></div>
+              </div>
+              <div class="card cl-panel">
+                <h4>Adjust colours</h4>
+                <div class="slider-field"><span>Hue <b id="cl-hue-val">0°</b></span><input type="range" id="cl-hue" min="-180" max="180" value="0" /></div>
+                <div class="slider-field"><span>Saturation <b id="cl-sat-val">100%</b></span><input type="range" id="cl-sat" min="0" max="300" value="100" /></div>
+                <div class="slider-field"><span>Brightness <b id="cl-bright-val">0</b></span><input type="range" id="cl-bright" min="-100" max="100" value="0" /></div>
+                <div class="slider-field"><span>Contrast <b id="cl-contrast-val">100%</b></span><input type="range" id="cl-contrast" min="0" max="250" value="100" /></div>
+                <div class="ctrl-row tight"><label class="field colour-field"><span>Tint</span><input type="color" id="cl-tint" value="#b050ff" /></label><div class="slider-field"><span>Amount <b id="cl-tint-val">0%</b></span><input type="range" id="cl-tint-amt" min="0" max="100" value="0" /></div></div>
+                <div class="cl-btns"><button class="btn primary sm" id="cl-adj-apply"><i data-icon="check"></i>Apply</button><button class="btn ghost sm" id="cl-adj-all"><i data-icon="layers"></i>Apply to all clouds</button><button class="btn ghost sm" id="cl-adj-reset">Reset</button></div>
+              </div>
+              <div class="card cl-panel">
+                <h4>Picture &amp; edits</h4>
+                <label class="cl-check"><input type="checkbox" id="cl-keep" checked /> Keep the cloud's shape</label>
+                <div class="cl-btns">
+                  <button class="btn ghost sm" id="cl-picture"><i data-icon="image"></i>Use a picture</button>
+                  <button class="btn ghost sm" id="cl-flip-h">Flip ↔</button>
+                  <button class="btn ghost sm" id="cl-flip-v">Flip ↕</button>
+                  <button class="btn ghost sm" id="cl-invert">Invert</button>
+                  <button class="btn ghost sm" id="cl-mono">Black &amp; white</button>
+                  <button class="btn ghost sm" id="cl-reset-tex"><i data-icon="undo"></i>Back to original</button>
+                </div>
+              </div>
+              <div class="card cl-panel"><h4>History</h4><ul class="cl-history" id="cl-history"></ul></div>
             </div>
           </div>
         </div>
@@ -424,7 +493,7 @@
             <div class="cat-tabs" id="snd-cats">
               <button class="on" data-cat="all">All</button><button data-cat="guns">Guns</button><button data-cat="footsteps">Steps</button><button data-cat="kill">Kill/HUD</button><button data-cat="other">Other</button>
             </div>
-            <label class="search"><i data-icon="search"></i><input type="text" id="bank-search" placeholder="Search banks" /></label>
+            <label class="search"><i data-icon="search"></i><input type="text" id="bank-search" placeholder="Search guns or banks, e.g. pistol" /></label>
             <ul class="bank-list" id="bank-list"></ul>
           </div>
           <div class="card snd-mid">
@@ -487,11 +556,21 @@
           <div><p class="eyebrow">Settings</p><h2 class="headline">Make it <span class="outline">yours.</span></h2></div>
         </div>
         <div class="grid settings-grid">
+          <div class="card setting look span-2">
+            <div class="look-preview" id="look-preview"><span>Default</span></div>
+            <div class="look-body">
+              <b>Background</b><small id="look-state">Use your own picture or video behind the whole app.</small>
+              <div class="look-sliders">
+                <div class="slider-field"><span>Darken <b id="look-dim-val">55%</b></span><input type="range" id="look-dim" min="0" max="95" value="55" /></div>
+                <div class="slider-field"><span>Blur <b id="look-blur-val">0px</b></span><input type="range" id="look-blur" min="0" max="30" value="0" /></div>
+              </div>
+            </div>
+            <div class="look-actions"><button class="btn primary sm" id="look-pick"><i data-icon="image"></i>Choose picture or video</button><button class="btn ghost sm" id="look-clear"><i data-icon="undo"></i>Back to default</button></div>
+          </div>
           <div class="card setting"><div><b>Notification sounds</b><small>Soft clicks when things happen</small></div><button class="switch" data-setting="sound"><i></i></button></div>
           <div class="card setting"><div><b>Reduce motion</b><small>Tone down animations</small></div><button class="switch" data-setting="reduceMotion"><i></i></button></div>
           <div class="card setting"><div><b>Background field</b><small>Interactive dot grid</small></div><button class="switch" data-setting="bg"><i></i></button></div>
           <div class="card setting"><div><b>Encrypted RPFs</b><small id="keys-state">Checking…</small></div><button class="btn primary sm" id="keys-btn">Unlock</button></div>
-          <div class="card setting"><div><b>Pack AI key</b><small id="ai-key-state">Optional. Lets Claude read your requests and images.</small></div><button class="btn ghost sm" id="ai-key-btn">Add key</button></div>
           <div class="card setting"><div><b>Test notifications</b><small>See every style</small></div><button class="btn ghost sm" id="test-notify"><i data-icon="bell"></i>Fire</button></div>
         </div>
       </section>

@@ -15,9 +15,10 @@ Or double-click `start.bat`.
 
 **Manage**
 - **Dashboard**: link `FiveM.app/citizen` by dropping it in or using auto-detect. Shows stats, activity and a Launch FiveM button.
-- **Graphics**: three tabs.
+- **Graphics**: four tabs.
   - **My packs**: add packs (drop a folder or `.zip`), switch them on and off, delete them. Files go to `citizen`, and the pack's `.rpf` files go to `FiveM.app/mods`; both are backed up and removed again when the pack is switched off. **Colour tint** tints every timecycle in your game, with a live preview of the result. Applying again replaces the last tint; Reset tint removes it.
   - **Create with AI**: describe the pack you want. Add a picture to make it your sky, or a pack folder to build on. See below.
+  - **Clouds**: a paint-program style editor for the cloud hats (`cloudhat_*.ytd`). They are found automatically in your pack, your `FiveM.app/mods` folder (inside any RPF, whatever it is called), citizen or GTA V. Brush, eraser, colour picker, paint bucket, zoom and pan; hue / saturation / brightness / contrast / tint with live preview, on one texture or **all clouds at once**; swap in your own picture while keeping the cloud's shape; flip, invert, black & white; undo/redo with a history list; hold to compare with the original. **Install clouds** writes them back in their original format (into the RPF they came from, backed up; GTA V's own clouds go into a new `mods/kt_clouds.rpf`) and checks the files on disk. Shortcuts: B, E, I, G, H, Space to pan, [ ] brush size, 0 fit, 1 actual size, Ctrl+Z / Ctrl+Y.
   - **Advanced editor**: open any timecycle XML from your game (or your computer). Pick the weather and the area (Countryside or City; every game weather file has both), and see it in a live day/night preview. Settings have plain names ("Sky colour (top)", "Moon size"). Click one to open it: every box is one time of day, and you only change the box you pick (there is also "use this colour all day"). Untouched values are saved exactly as they were. Save to game (backed up), save as a pack, or export. For files FiveM does not read (not named `w_*.xml`), "Use for sunny weather" copies it over the sunny and clear weather.
 - **World**:
   - Water: removed / visible.
@@ -33,14 +34,14 @@ Or double-click `start.bat`.
   - Export, or install to `mods`.
   - A texture shared by several models (e.g. `_hi` copies) is edited once and written to all of them.
 - **Sound Lab**: open `WEAPONS_PLAYER.rpf`, `RESIDENT.rpf` or a sound pack.
-  - Banks are grouped into Guns, Footsteps, Kill/HUD and Other.
+  - Banks are grouped into Guns, Footsteps, Kill/HUD and Other. Gun banks say which gun they are for ("Combat Pistol", "Micro SMG", "Heavy Sniper"...), read from the bank names (`ptl_combat`, `smg_micro`, `snp_heavy`); search by gun name.
   - Play any sound, or replace it with your own `.wav` / `.mp3` / `.ogg`, adjusting volume, pitch, trim, max length and fade.
   - Export the `.rpf`, or install it to `citizen/platform/audio/sfx`. Installs are backed up like every other citizen change.
 
 **System**
 - **Cache**: shows the size of each FiveM cache folder and cleans the ones you select.
 - **Backups**: the original of every file the app changes is backed up first. "Restore everything" puts the folder back to stock.
-- **Settings**: sounds, reduce motion, background effect, notification test.
+- **Settings**: your own background (a picture or a looping MP4/WebM video, with Darken and Blur; or drop a file on the Settings page), sounds, reduce motion, background effect, notification test.
 
 **Profile** (bottom left): set a display name and avatar, or link Discord to show your Discord name and avatar and set your Discord status. Linking Discord needs:
 - the Discord desktop app running
@@ -52,7 +53,7 @@ Type what you want, and optionally add a picture and/or a pack folder:
 
 > Use my picture as the actual sky, add stars, bigger moon, no water, FPS boost.
 
-- **A picture as the sky**: GTA V's custom skies are the `starfield` picture inside `skydome.ytd` (what sky packs replace). Your picture is written into it, in its original size and format, and shows **all the time**: the day sky is darkened and the stars turned up so the picture is not washed out (say "only at night" if you want it at night only). It is written to both places FiveM can load it from: the sky RPF it came from in `FiveM.app/mods`, and `FiveM.app/citizen/platform/textures/skydome.ytd`.
+- **A picture as the sky**: GTA V's custom skies are the `starfield` picture inside `skydome.ytd` (what sky packs replace). Your picture is written into it, in its original size and format, and shows **all the time**: the day sky is darkened and the stars turned up so the picture is not washed out (say "only at night" if you want it at night only). It is written to both places FiveM can load it from: the sky RPF it came from in `FiveM.app/mods`, and `FiveM.app/citizen/platform/textures/skydome.ytd`. The sky is found by what is inside each RPF, not by its name: only an archive's file list is read (a few KB) until one with `skydome.ytd` turns up, nested RPFs included, so your mate's pack works whatever its RPFs are called, up to 2 GB each.
 - **A pack folder or .zip** (folder button, or drop it on the chat): the AI builds on it. The new pack keeps every file of the original; the original folder is never changed.
 - **Things you can ask for**: pvp pack; always night / always day; stars, moon, sun, clouds, fog, glow, distance blur with more / less / no / bigger / smaller; moods (sunset, night, neon/cyberpunk, vaporwave, apocalypse, overcast, foggy, stormy, winter, desert, cinematic, sunny); colours ("purple sky", "red tint"); darker / brighter / more vibrant; "no water", "no black mountains", "no trees", "no bushes", "no props" and the matching "have ..."; FPS boost (light / boost / max).
 - Every answer says exactly what changed, and plainly when something could not be done (for example a timecycle with no moon size value, or trees whose removal files are not loaded yet).
@@ -61,12 +62,12 @@ Type what you want, and optionally add a picture and/or a pack folder:
 - Water works out of the box. Black mountains, trees, bushes and props switch only after you load their removal files on the World page once.
 - FPS boost lowers LOD distance, shadow distance, ambient occlusion, light rays and motion blur, only where those values exist in the files.
 
-It works offline with a built-in reader. Add an Anthropic API key in Settings â†’ Pack AI key and Claude reads your requests (and looks at your picture) instead. The key stays on your PC and is only sent to Anthropic when you press Create.
+It works offline; nothing is sent anywhere.
 
 ## Limits
 
 - The Pack AI cannot create the files that remove trees, bushes, props or black mountains; it switches them once you have loaded them.
-- Only when the sky comes straight from GTA V (no sky RPF in your pack or mods folder) is it installed as `citizen/platform/textures/skydome.ytd`, which is a best guess at the path. A pack's own sky RPF in `mods` is the reliable route.
+- `citizen/platform/textures/skydome.ytd` is where FiveM loads its sky from (Cfx.re how-to); the sky RPF in `mods` is written as well, so either way the picture is there.
 - Sky textures in BC7 or ATI format cannot be written yet; the sky colours still change.
 - The editor's clock times for the 9 daily keyframes are approximate and only drive the preview. The values and their order in your file are never reordered.
 
@@ -78,7 +79,7 @@ It works offline with a built-in reader. Add an Anthropic API key in Settings â†
 ## Dev
 
 ```
-npm test                      # 46 tests: RPF, textures, DXT, citizen, AWC, Sound Lab, mods, cache, presets, timecycle editor, Pack AI, sky texture, dropped packs
+npm test                      # 47 tests: RPF, textures, DXT, citizen, AWC, Sound Lab, mods, cache, presets, timecycle editor, Pack AI, sky texture, dropped packs
 node scripts/make-sample.mjs  # builds samples/ (test pistol + test sound pack)
 node scripts/rpf-ls.js x.rpf  # list an archive's contents, including nested archives
 ```
