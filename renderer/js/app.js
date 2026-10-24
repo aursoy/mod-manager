@@ -2,6 +2,7 @@ import { hydrateIcons, icon } from './icons.js';
 import { notify, initDrawer, settings as notifySettings } from './notify.js';
 import { initBackground, initInteractions, syncSeg, countUp, stagger, busy, fillRange, fxState } from './fx.js';
 import { initKeys } from './keys.js';
+import { initStudio, refreshStudio, handleDrop as studioDrop } from './tcstudio.js';
 import { initPages, refreshMods, refreshPresets, refreshCache, refreshProfile, addModFiles } from './pages.js';
 
 // Gun/Sound labs pull in three.js. Load them dynamically so a missing
@@ -98,7 +99,7 @@ function movePill() {
 
 function refreshPage(page) {
   if (page === 'home') refreshHome();
-  if (page === 'graphics') refreshGraphics();
+  if (page === 'graphics') { refreshGraphics(); refreshStudio(); }
   if (page === 'world') refreshWorld();
   if (page === 'backups') refreshBackups();
   if (page === 'mods') refreshMods();
@@ -190,7 +191,7 @@ function paintPreview() {
   $('#grade-hex').textContent = o.hex.toUpperCase();
   $('#strength-val').textContent = Math.round(o.strength * 100) + '%';
   $('#bright-val').textContent = (o.brightness > 0 ? '+' : '') + Math.round(o.brightness * 100);
-  $$$('#swatches .sw').forEach((s) => s.classList.toggle('on', s.dataset.hex === o.hex));
+  $$('#swatches .sw').forEach((s) => s.classList.toggle('on', s.dataset.hex === o.hex));
 }
 
 let tcScanItems = [];
@@ -236,7 +237,7 @@ async function refreshGraphics() {
     $('#grade-color').value = colour.hex || '#ffffff';
     $('#grade-strength').value = Math.round(colour.strength * 100);
     $('#grade-bright').value = Math.round((colour.brightness || 0) * 100);
-    $$$('#grade-groups .chip').forEach((c) => c.classList.toggle('on', (colour.groups || []).includes(c.dataset.group)));
+    $$('#grade-groups .chip').forEach((c) => c.classList.toggle('on', (colour.groups || []).includes(c.dataset.group)));
     $$('#pages input[type=range]').forEach(fillRange);
   }
   refreshGraphics.loaded = true;
@@ -275,9 +276,9 @@ async function installPack(sources) {
 
 function initGraphics() {
   $('#swatches').innerHTML = PRESETS.map(([n, h]) => `<button class="sw" data-hex="${h}" data-tip="${n}" style="background:${h}"></button>`).join('');
-  $('#swatches .sw').forEach((s) => (s.onclick = () => { $('#grade-color').value = s.dataset.hex; paintPreview(); }));
+  $$('#swatches .sw').forEach((s) => (s.onclick = () => { $('#grade-color').value = s.dataset.hex; paintPreview(); }));
   ['#grade-color', '#grade-strength', '#grade-bright'].forEach((s) => $(s).addEventListener('input', paintPreview));
-  $('#grade-groups .chip').forEach((c) => (c.onclick = () => { c.classList.toggle('on'); }));
+  $$('#grade-groups .chip').forEach((c) => (c.onclick = () => { c.classList.toggle('on'); }));
 
   $('#tc-select')?.addEventListener('change', () => {
     const sel = $('#tc-select');
@@ -355,7 +356,7 @@ async function toggleTweak(t, on) {
   }
 }
 
-const TWEAK_ICON = { water: 'droplet', mountains: 'mountain' };
+const TWEAK_ICON = { water: 'droplet', mountains: 'mountain', trees: 'tree', bushes: 'leaf', props: 'cube' };
 
 async function refreshWorld() {
   const tweaks = (await api.call('tweaks:list')).filter((t) => t.kind !== 'pack');
@@ -510,7 +511,7 @@ function initDrop() {
     }
 
     if (currentPage === 'home') setCitizen(paths[0]);
-    else if (currentPage === 'graphics') installPack(paths);
+    else if (currentPage === 'graphics') { if (!(await studioDrop(paths))) installPack(paths); }
     else if (currentPage === 'gun') openGunFile(paths[0]);
     else if (currentPage === 'sound') handleSoundDrop(paths);
     else if (currentPage === 'mods') addModFiles(paths);
@@ -561,6 +562,7 @@ async function boot() {
   safe('initDrawer', initDrawer);
   safe('initHome', initHome);
   safe('initGraphics', initGraphics);
+  safe('initStudio', () => initStudio({ modal, go, refreshGraphics }));
   safe('initWorld', initWorld);
   safe('initBackups', initBackups);
   safe('initSettings', initSettings);

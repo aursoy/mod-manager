@@ -94,6 +94,27 @@ const BUILTIN_TWEAKS = {
     offLabel: 'Visible',
     onLabel: 'Removed',
   },
+  trees: {
+    id: 'trees',
+    name: 'Trees',
+    description: 'Load the tree-removal files from your graphics pack once, then flip trees between removed and visible any time.',
+    offLabel: 'Visible',
+    onLabel: 'Removed',
+  },
+  bushes: {
+    id: 'bushes',
+    name: 'Bushes',
+    description: 'Load the bush and grass removal files from your graphics pack once, then flip them between removed and visible.',
+    offLabel: 'Visible',
+    onLabel: 'Removed',
+  },
+  props: {
+    id: 'props',
+    name: 'Props',
+    description: 'Load the prop-removal files from your graphics pack once, then flip props between removed and visible.',
+    offLabel: 'Visible',
+    onLabel: 'Removed',
+  },
 };
 
 const COLOUR_GROUPS = {
@@ -534,6 +555,59 @@ class CitizenManager {
     }
     this.save();
     return { tweaks: this.listTweaks(), conflicts };
+  }
+
+  // ---------- timecycle editor ----------
+  /** Resolve a citizen-relative XML path, refusing anything outside the folder. */
+  timecyclePath(rel) {
+    rel = norm(String(rel || ''));
+    if (!rel.toLowerCase().endsWith('.xml') || rel.split('/').includes('..')) throw new Error('Not a timecycle file: ' + rel);
+    const root = path.resolve(this.requireCitizen());
+    const abs = path.resolve(root, ...rel.split('/'));
+    if (abs !== root && !abs.startsWith(root + path.sep)) throw new Error('Not a timecycle file: ' + rel);
+    return { rel, abs };
+  }
+
+  readTimecycle(rel, { stock = false } = {}) {
+    const { rel: r, abs } = this.timecyclePath(rel);
+    // "stock" = the file as it was before this app first changed it.
+    if (stock && this.state.journal[r] && this.state.journal[r].existed && fs.existsSync(this.backupPath(r))) {
+      return fs.readFileSync(this.backupPath(r), 'utf8');
+    }
+    if (!fs.existsSync(abs)) throw new Error('Timecycle file not found: ' + r);
+    return fs.readFileSync(abs, 'utf8');
+  }
+
+  /** Save an edited timecycle into citizen. Journaled, so Backups can undo it. */
+  writeTimecycle(rel, xml) {
+    const { rel: r } = this.timecyclePath(rel);
+    if (typeof xml !== 'string' || !/<[a-z_]/i.test(xml)) throw new Error('That does not look like timecycle XML.');
+    this.writeFile(r, xml, this.state.owners[r] || 'timecycle_edit');
+    // The colour grader keeps its own base copy of each file; drop it so the next grade starts from this edit.
+    delete this.state.colourBase[r];
+    this.log('success', 'Saved ' + path.basename(r) + ' from the timecycle editor');
+    this.save();
+    return r;
+  }
+
+  /** Make a new graphics pack out of in-memory files. It starts switched off. */
+  createPack(name, files) {
+    const entries = Object.entries(files || {});
+    if (!entries.length) throw new Error('A pack needs at least one file.');
+    for (const [rel] of entries) {
+      if (norm(rel).split('/').includes('..') || path.isAbsolute(rel)) throw new Error('Refusing unsafe path ' + rel);
+    }
+    const id = 'custom_' + crypto.randomBytes(4).toString('hex');
+    const lib = this.libraryDir(id);
+    for (const [rel, data] of entries) {
+      const dest = path.join(lib, ...norm(rel).split('/'));
+      fs.mkdirSync(path.dirname(dest), { recursive: true });
+      fs.writeFileSync(dest, data);
+    }
+    this.state.custom.push({ id, name: String(name || 'Custom pack').slice(0, 60), kind: 'pack', description: 'Graphics pack' });
+    this.log('info', 'Created graphics pack "' + name + '" with ' + entries.length + ' file(s)');
+    this.save();
+    return id;
   }
 
   // ---------- colour grading ----------

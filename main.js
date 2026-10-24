@@ -8,6 +8,7 @@ const { SoundPack } = require('./src/core/soundpack');
 const { DiscordRpc } = require('./src/core/discord');
 const extras = require('./src/core/extras');
 const rpf = require('./src/core/rpf');
+const { AiKey, askClaude } = require('./src/core/ai');
 const { GtaKeys, findAesKey, findGtaExes } = require('./src/core/ngcrypto');
 
 app.setName('Kt Mod Manager');
@@ -179,6 +180,66 @@ app.whenReady().then(() => {
   handle('colour:reset', () => mgr.resetColour());
   handle('colour:state', () => mgr.state.colour);
   handle('colour:activate', (rel) => mgr.activateTimecycle(rel));
+
+  // ----- timecycle editor / graphics AI -----
+  const aiKey = new AiKey(path.join(app.getPath('userData'), 'data', 'ai.json'));
+  handle('timecycle:read', (rel, opts) => mgr.readTimecycle(rel, opts));
+  handle('timecycle:write', (rel, xml) => mgr.writeTimecycle(rel, xml));
+  handle('timecycle:open', async (given) => {
+    let f = given;
+    if (!f) {
+      const r = await dialog.showOpenDialog(win, { title: 'Open a timecycle XML', properties: ['openFile'], filters: [{ name: 'Timecycle XML', extensions: ['xml'] }] });
+      if (r.canceled) return null;
+      f = r.filePaths[0];
+    }
+    if (!/\.xml$/i.test(f)) throw new Error('Pick an .xml file.');
+    if (fs.statSync(f).size > 16 * 1048576) throw new Error('That file is too big to be a timecycle.');
+    return { name: path.basename(f), xml: fs.readFileSync(f, 'utf8') };
+  });
+  handle('timecycle:export', async (name, xml) => {
+    const r = await dialog.showSaveDialog(win, { title: 'Export timecycle', defaultPath: name, filters: [{ name: 'XML', extensions: ['xml'] }] });
+    if (r.canceled) return null;
+    fs.writeFileSync(r.filePath, xml);
+    return r.filePath;
+  });
+  // Files become a new pack (switched on), then each world switch is flipped if its files exist.
+  handle('pack:create', (name, files, tweaks = {}, opts = {}) => {
+    const id = Object.keys(files).length ? mgr.createPack(name, files) : null;
+    const applied = [];
+    const skipped = [];
+    let conflicts = [];
+    if (id && opts.enable !== false) {
+      const r = mgr.setTweak(id, true);
+      conflicts = r.conflicts;
+    }
+    for (const [tid, on] of Object.entries(tweaks)) {
+      try {
+        const r = mgr.setTweak(tid, on);
+        conflicts = conflicts.concat(r.conflicts);
+        applied.push(tid);
+      } catch (e) {
+        skipped.push({ id: tid, reason: e.message });
+      }
+    }
+    mgr.log('success', 'Installed AI pack "' + name + '"');
+    mgr.save();
+    return { id, applied, skipped, conflicts };
+  });
+  const IMG_TYPES = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.bmp': 'image/bmp' };
+  const readImage = (f) => {
+    const type = IMG_TYPES[path.extname(f).toLowerCase()];
+    if (!type) throw new Error('Pick a PNG, JPG, WebP, GIF or BMP image.');
+    if (fs.statSync(f).size > 20 * 1048576) throw new Error('Pick an image under 20 MB.');
+    return { name: path.basename(f), mediaType: type, data: fs.readFileSync(f).toString('base64') };
+  };
+  handle('gfx:pickImage', async () => {
+    const r = await dialog.showOpenDialog(win, { title: 'Choose an image', properties: ['openFile'], filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'] }] });
+    return r.canceled ? null : readImage(r.filePaths[0]);
+  });
+  handle('gfx:readImage', (f) => readImage(f));
+  handle('ai:status', () => ({ hasKey: !!aiKey.get() }));
+  handle('ai:setKey', (key) => ({ hasKey: aiKey.set(key) }));
+  handle('ai:ask', (req) => askClaude({ key: aiKey.get(), system: req.system, prompt: req.prompt, image: req.image }));
 
   handle('backups:list', () => mgr.listBackups());
   handle('backups:restoreAll', () => mgr.restoreAll());
