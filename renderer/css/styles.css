@@ -177,9 +177,9 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
 .btn.ghost.loading::before { border-color: #fff transparent #fff transparent; }
 
 .field { display: grid; gap: 7px; font-size: 12px; color: var(--ink-3); font-weight: 500; }
-.field input[type=text], .field select { height: 40px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--line-2); background: rgba(0,0,0,.5); outline: none; transition: border-color .2s, box-shadow .2s; color: #fff; font-size: 13.5px; user-select: text; }
+.field input:not([type=range]):not([type=color]):not([type=checkbox]), .field select { height: 40px; width: 100%; padding: 0 12px; border-radius: 10px; border: 1px solid var(--line-2); background: rgba(0,0,0,.5); outline: none; transition: border-color .2s, box-shadow .2s; color: #fff; font-size: 13.5px; user-select: text; }
 .field select option { background: #0a0a0a; }
-.field input[type=text]:focus, .field select:focus { border-color: #fff; box-shadow: 0 0 0 4px rgba(255,255,255,.08); }
+.field input:not([type=range]):not([type=color]):not([type=checkbox]):focus, .field select:focus { border-color: #fff; box-shadow: 0 0 0 4px rgba(255,255,255,.08); }
 .colour-field input[type=color] { width: 100%; height: 40px; border-radius: 10px; border: 1px solid var(--line-2); background: none; padding: 4px; cursor: pointer; }
 .colour-field input[type=color]::-webkit-color-swatch-wrapper { padding: 0; }
 .colour-field input[type=color]::-webkit-color-swatch { border: 0; border-radius: 7px; }
@@ -829,5 +829,7 @@ body.custom-bg #bg { display: none; }
 .setting.ai-link { display: grid; gap: 14px; align-items: stretch; }
 .ai-link-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .ai-link-head small { display: block; }
-.ai-link-fields { display: grid; grid-template-columns: 1.4fr 1fr .8fr; gap: 12px; }
+.ai-link-fields { display: grid; grid-template-columns: 1.4fr 1fr; gap: 12px; }
+#ai-key { font-family: var(--mono); letter-spacing: .08em; }
+.ai-link .row-end { margin: 0; }
 .ai-link-fields .field { margin: 0; }

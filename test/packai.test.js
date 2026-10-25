@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
-const { askPackAi, chatUrl, isAnthropic, parseJson } = require('../src/core/packai');
+const { askPackAi, listModels, provider, chatUrl, isAnthropic, parseJson } = require('../src/core/packai');
 const aiP = import('../renderer/js/gfxai.js');
 
 const answer = { reply: 'PvP pack, no fog, black sky.', patch: { name: null, mood: 'pvp', skyColour: '#000000', tint: null, tintStrength: null, brightness: 0.2, saturation: null, world: { water: 'remove', mountains: null, snow: null }, adjust: { stars: 'more', moon: null, sun: 'none', clouds: null, fog: null, bloom: null, blur: null }, fps: 3, constant: true, timeLock: 'night', imageUse: null } };
@@ -13,6 +13,7 @@ test('AI link: OpenAI-style links get the chat endpoint, the key and a JSON answ
   assert.ok(isAnthropic({ url: 'https://api.anthropic.com' }) && isAnthropic({ url: 'https://x.example', key: 'sk-ant-abc' }) && !isAnthropic({ url: 'https://api.openai.com/v1', key: 'sk-proj' }));
   const calls = [];
   const fake = async (url, opts) => {
+    if (!opts.body) return { ok: true, status: 200, json: async () => ({ data: [{ id: 'text-embedding-3' }, { id: 'some-model' }, { id: 'gpt-4o-mini' }] }) };
     const body = JSON.parse(opts.body);
     calls.push({ url, auth: opts.headers.authorization, body });
     if (body.response_format) return { ok: false, status: 400, text: async () => 'unknown field response_format' };
@@ -24,7 +25,18 @@ test('AI link: OpenAI-style links get the chat endpoint, the key and a JSON answ
   assert.strictEqual(calls[0].auth, 'Bearer k1');
   assert.strictEqual(calls[1].body.model, 'm1');
   assert.ok(calls[1].body.messages[1].content.includes('pvp pack black sky max fps'));
-  await assert.rejects(askPackAi({ url: 'https://llm.example/v1' }, { text: 'x' }, fake), /model name/);
+  // no model chosen: the provider's list is read and the best chat model is used
+  calls.length = 0;
+  await askPackAi({ url: 'https://llm.example/v1', key: 'k1' }, { text: 'x' }, fake);
+  assert.strictEqual(calls[0].body.model, 'gpt-4o-mini');
+  assert.deepStrictEqual(await listModels({ key: 'sk-proj-abc' }, fake), ['gpt-4o-mini', 'some-model'], 'embedding models dropped');
+  // the provider comes from the key alone
+  assert.strictEqual(provider({ key: 'AIzaSyX' }).name, 'Google Gemini');
+  assert.strictEqual(provider({ key: 'gsk_123' }).url, 'https://api.groq.com/openai/v1');
+  assert.strictEqual(provider({ key: 'sk-or-v1-x' }).name, 'OpenRouter');
+  assert.strictEqual(provider({ key: 'sk-proj-x' }).name, 'OpenAI');
+  assert.strictEqual(provider({ key: 'what' }), null);
+  await assert.rejects(askPackAi({ key: 'what' }, { text: 'x' }, fake), /not one the app knows/);
   assert.throws(() => parseJson('sorry, no'), /JSON/);
 });
 

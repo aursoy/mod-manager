@@ -145,8 +145,8 @@ test('the whole app: water, packs, mods, world, blood FX, Pack AI, editor, AI li
   check('editor saves into that pack', fs.readFileSync(path.join(packDir, 'citizen', 'common', 'data', 'timecycle', 'w_extrasunny.xml'), 'utf8').includes('EDITED'));
 
   // ---- AI link settings (key stored encrypted) ----
-  const cfg = await call('ai:setConfig', { url: 'https://api.anthropic.com', key: 'sk-ant-xyz', model: '' });
-  check('AI link saved', cfg.on && cfg.hasKey && cfg.model === 'claude-opus-5-5');
+  const cfg = await call('ai:setConfig', { key: 'AIzaSyFAKE', model: '' });
+  check('AI saved, provider found from the key', cfg.on && cfg.hasKey && cfg.provider === 'Google Gemini');
   await call('ai:setConfig', { url: '', key: '' });
   check('AI link off', !(await call('ai:config')).on);
 

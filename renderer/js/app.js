@@ -305,16 +305,31 @@ function applyPrefs() {
 async function refreshAiLink() {
   const c = await api.call('ai:config').catch(() => null);
   if (!c) return;
-  $('#ai-url').value = c.url; $('#ai-model').value = c.model;
-  $('#ai-key').placeholder = c.hasKey ? 'Saved (paste to replace)' : 'Paste key';
-  $('#ai-state').textContent = c.on ? 'Pack AI answers through ' + (c.url.replace(/^https?:\/\//, '').split('/')[0]) : 'Off — the Pack AI works offline';
-  $('#ai-tag').textContent = c.on ? 'Linked' : 'Offline';
+  $('#ai-url').value = c.url;
+  if (c.url) $('#ai-url-wrap').classList.remove('hidden');
+  $('#ai-key').placeholder = c.hasKey ? '•••••••• saved (paste to replace)' : 'Paste your API key';
+  const sel = $('#ai-model');
+  if (c.model && ![...sel.options].some((o) => o.value === c.model)) sel.add(new Option(c.model, c.model));
+  sel.value = c.model || '';
+  $('#ai-state').textContent = c.on ? 'On for the AI chat in Graphics' + (c.provider ? ' · ' + c.provider : '') + (c.model ? ' · ' + c.model : '') : 'Powers the AI chat in Graphics. Paste an API key from any AI.';
+  $('#ai-tag').textContent = c.on ? 'On' : 'Off';
   $('#ai-tag').classList.toggle('solid', c.on);
+}
+
+async function fillAiModels() {
+  const sel = $('#ai-model');
+  const keep = sel.value;
+  const list = await api.call('ai:models');
+  sel.innerHTML = '<option value="">Auto</option>' + list.map((m) => `<option value="${esc(m)}">${esc(m)}</option>`).join('');
+  sel.value = list.includes(keep) ? keep : '';
+  sel.dispatchEvent(new Event('kt:refresh'));
 }
 
 function initSettings() {
   $('#tour-replay').onclick = () => startTour({ go });
-  refreshAiLink();
+  refreshAiLink().then(() => api.call('ai:config')).then((c) => { if (c && c.on) fillAiModels().then(refreshAiLink).catch(() => {}); }).catch(() => {});
+  $('#ai-more').onclick = () => { $('#ai-url-wrap').classList.toggle('hidden'); if (!$('#ai-url-wrap').classList.contains('hidden')) $('#ai-url').focus(); };
+  $('#ai-model').addEventListener('change', () => api.call('ai:setConfig', { model: $('#ai-model').value }).then(refreshAiLink).catch(() => {}));
   $('#ai-save').onclick = async (e) => {
     const btn = e.currentTarget;
     busy(btn, true);
@@ -322,16 +337,18 @@ function initSettings() {
       const key = $('#ai-key').value.trim();
       await api.call('ai:setConfig', { url: $('#ai-url').value, model: $('#ai-model').value, ...(key ? { key } : {}) });
       $('#ai-key').value = '';
-      await refreshAiLink();
+      await fillAiModels();
       const reply = await api.call('ai:test');
-      notify.success('AI linked', reply);
-    } catch (err) { notify.error('AI link not working', err.message); }
+      await refreshAiLink();
+      notify.success('AI is on', reply);
+    } catch (err) { notify.error('AI not working', err.message); refreshAiLink(); }
     busy(btn, false);
   };
   $('#ai-off').onclick = async () => {
-    await api.call('ai:setConfig', { url: '', key: '' }).catch(() => {});
+    await api.call('ai:setConfig', { url: '', key: '', model: '' }).catch(() => {});
+    $('#ai-model').innerHTML = '<option value="">Auto</option>';
     refreshAiLink();
-    notify.info('AI link off', 'The Pack AI works offline again.');
+    notify.info('AI off', 'The AI chat works offline again.');
   };
   $$('[data-setting]').forEach((s) => (s.onclick = () => {
     prefs[s.dataset.setting] = !prefs[s.dataset.setting];

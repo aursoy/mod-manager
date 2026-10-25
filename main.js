@@ -14,7 +14,7 @@ const { findGtaDirs, DEFAULT_REL: SKY_REL } = require('./src/core/skytex');
 const { openSkySource, skySources } = require('./src/core/skysource');
 const { listSources, openSource, openFiles } = require('./src/core/texsource');
 const { WorldFiles } = require('./src/core/worldfiles');
-const { askPackAi, isAnthropic, DEFAULT_ANTHROPIC_MODEL } = require('./src/core/packai');
+const { askPackAi, listModels, provider: aiProvider } = require('./src/core/packai');
 const { EditorPack } = require('./src/core/editorpack');
 const { readFileFrom } = require('./src/core/rpfscan');
 const { GtaKeys, findAesKey, findGtaExes } = require('./src/core/ngcrypto');
@@ -418,7 +418,7 @@ app.whenReady().then(() => {
   handle('look:set', (patch) => look.set(patch));
   handle('look:clear', () => look.clear());
 
-  // ----- AI link (Pack AI) -----
+  // ----- AI (the Graphics AI chat): any provider's API key -----
   // The key is stored encrypted with the OS keychain when Electron can.
   const aiCfg = () => {
     const a = mgr.state.ai || {};
@@ -426,17 +426,22 @@ app.whenReady().then(() => {
     try { key = a.key ? (a.enc && safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(Buffer.from(a.key, 'base64')) : a.key) : ''; } catch (e) { key = ''; }
     return { url: a.url || '', model: a.model || '', key };
   };
-  const aiPublic = () => { const c = aiCfg(); return { url: c.url, model: c.model || (c.url && isAnthropic(c) ? DEFAULT_ANTHROPIC_MODEL : ''), hasKey: !!c.key, on: !!c.url }; };
+  const aiPublic = () => {
+    const c = aiCfg();
+    const p = (c.key || c.url) ? aiProvider(c) : null;
+    return { url: c.url, model: c.model, hasKey: !!c.key, on: !!(c.key || c.url), provider: p ? p.name : (c.key ? 'Unknown' : '') };
+  };
   handle('ai:config', () => aiPublic());
   handle('ai:setConfig', (patch) => {
     const cur = aiCfg();
     const next = { url: String(patch.url ?? cur.url).trim(), model: String(patch.model ?? cur.model).trim(), key: patch.key != null ? String(patch.key).trim() : cur.key };
-    if (next.url && !/^https?:\/\//i.test(next.url)) throw new Error('The API link must start with http:// or https://');
+    if (next.url && !/^https?:\/\//i.test(next.url)) throw new Error('The link must start with http:// or https://');
     const enc = !!next.key && safeStorage.isEncryptionAvailable();
     mgr.state.ai = { url: next.url, model: next.model, key: next.key ? (enc ? safeStorage.encryptString(next.key).toString('base64') : next.key) : '', enc };
     mgr.save();
     return aiPublic();
   });
+  handle('ai:models', () => listModels(aiCfg()));
   handle('ai:ask', (input) => askPackAi(aiCfg(), input));
   handle('ai:test', async () => (await askPackAi(aiCfg(), { text: 'pvp pack, no fog', spec: null })).reply);
 

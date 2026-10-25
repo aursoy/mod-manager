@@ -500,7 +500,7 @@ function greet() {
 async function refreshAiEngine() {
   const c = await api.call('ai:config').catch(() => null);
   aip.linked = !!(c && c.on);
-  $('#aip-engine').textContent = aip.linked ? 'AI link · ' + (c.model || c.url.replace(/^https?:\/\//, '').split('/')[0]) : 'Offline';
+  $('#aip-engine').textContent = aip.linked ? 'AI · ' + (c.provider || 'online') : 'Offline';
 }
 
 function loadImageEl(url) {
@@ -695,7 +695,7 @@ async function generate() {
         const r = await api.call('ai:ask', { text, spec: aip.spec, hasImage: !!aip.image, hasPack: !!aip.pack });
         patch = AI.fromModel(r.patch);
         if (r.reply) bubble('ai', esc(r.reply));
-      } catch (e) { bubble('ai', 'AI link failed (' + esc(e.message) + '), so I read it myself.'); }
+      } catch (e) { bubble('ai', 'The AI did not answer (' + esc(e.message) + '), so I read it myself.'); }
     }
     if (!patch) patch = AI.parsePrompt(text);
     if (aip.image) {
@@ -784,7 +784,8 @@ function showResult() {
 function drawAi() {
   if (pane !== 'ai') return;
   const cv = $('#aip-canvas');
-  const showImg = aip.result && aip.result.skyOk && aip.image;
+  // the picture shows whenever it is meant to be the sky (if the game's sky file was not found, the chat says so)
+  const showImg = aip.result && aip.image && (aip.result.skyOk || (aip.spec.skyImage && aip.spec.imageUse !== 'colours'));
   const has = !!(aip.preview || showImg);
   $('#aip-empty').classList.toggle('hidden', has);
   if (has) {
