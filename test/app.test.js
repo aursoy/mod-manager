@@ -19,8 +19,9 @@ fs.mkdirSync(path.join(gta, 'update'), { recursive: true });
 fs.writeFileSync(path.join(gta, 'x64a.rpf'), rpf.writeRpf({ type: 'dir', name: '', children: [] }));
 const VS = '# misc\nmisc.Multiplier.farClipMultiplier\t1\n\n# peds\nped.lod.distance.high\t25.00\nped.lod.distance.medium\t50.00\nped.lod.distance.low\t80.00\npedincar.lod.distance.high\t7.00\npedincar.lod.distance.high.x64\t15.00\n';
 const WX = '<CWeatherTypes><Item><Name>EXTRASUNNY</Name><Snow value="0.000000"/><SnowMist value="0.000000"/></Item></CWeatherTypes>';
+const CL = '<CloudHatSettings><mCloudHatFrags><Item><mAngularVelocity x="0.000000" y="0.000000" z="0.000200" /><mUVVelocity>0.004000\t0.001000</mUVVelocity></Item></mCloudHatFrags><mAltitudeScrollScaler value="0.100000" /></CloudHatSettings>';
 const bin = (name, s) => ({ type: 'bin', name, stored: Buffer.from(s), compressed: false, size: Buffer.byteLength(s) });
-fs.writeFileSync(path.join(gta, 'update', 'update.rpf'), rpf.writeRpf({ type: 'dir', name: '', children: [{ type: 'dir', name: 'common', children: [{ type: 'dir', name: 'data', children: [bin('visualsettings.dat', VS), { type: 'dir', name: 'levels', children: [{ type: 'dir', name: 'gta5', children: [bin('weather.xml', WX)] }] }] }] }] }));
+fs.writeFileSync(path.join(gta, 'update', 'update.rpf'), rpf.writeRpf({ type: 'dir', name: '', children: [{ type: 'dir', name: 'common', children: [{ type: 'dir', name: 'data', children: [bin('visualsettings.dat', VS), bin('clouds.xml', CL), { type: 'dir', name: 'levels', children: [{ type: 'dir', name: 'gta5', children: [bin('weather.xml', WX)] }] }] }] }] }));
 fs.writeFileSync(path.join(app, 'CitizenFX.ini'), '[Game]\nIVPath=' + gta + '\n');
 // cache folders
 for (const d of ['data/cache', 'data/server-cache']) { fs.mkdirSync(path.join(app, d), { recursive: true }); fs.writeFileSync(path.join(app, d, 'blob.bin'), Buffer.alloc(4096, 1)); }
@@ -120,6 +121,12 @@ test('the whole app: water, packs, mods, world, blood FX, Pack AI, editor, AI li
   check('snow on', sn.on && (read('common/data/levels/gta5/weather.xml') || '').includes('<Snow value="0.700000"'));
   sn = await call('world:setSnow', 0);
   check('snow off', !sn.on && read('common/data/levels/gta5/weather.xml') === null);
+  let cl = await call('world:clouds');
+  check('clouds.xml found in GTA V', cl.available && !cl.on);
+  cl = await call('world:setClouds', true);
+  check('still clouds on', cl.on && (read('common/data/clouds.xml') || '').includes('z="0.000000"') && !(read('common/data/clouds.xml') || '').includes('0.004000'));
+  cl = await call('world:setClouds', false);
+  check('still clouds off', !cl.on && read('common/data/clouds.xml') === null);
 
   // ---- blood FX: an RPF with core.ypt ----
   const ypt = buildYtd(['blood_spray', 'fire'], 64, 64, { ypt: true });
@@ -169,13 +176,14 @@ test('the whole app: water, packs, mods, world, blood FX, Pack AI, editor, AI li
 
   // ---- backups: restore everything ----
   await call('world:setSnow', 1);
+  await call('world:setClouds', true);
   await call('tweaks:set', 'water', true);
   check('backups list the changes', (await call('backups:list')).length >= 2);
   await call('backups:restoreAll');
   await call('world:setMountains', { removed: true });
   await call('world:setPedLod', true);
   await call('backups:restoreAll');
-  check('restore everything: World options show off again', !(await call('world:mountains')).removed && !(await call('world:pedLod')).on && !(await call('world:snow')).on);
+  check('restore everything: World options show off again', !(await call('world:mountains')).removed && !(await call('world:pedLod')).on && !(await call('world:snow')).on && !(await call('world:clouds')).on);
   check('restore everything: game back to stock', read(water) === null && read('common/data/levels/gta5/weather.xml') === null && (read('common/data/timecycle/w_extrasunny.xml') || '').includes('EXTRASUNNY'));
 
   assert.deepStrictEqual(failed, []);

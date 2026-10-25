@@ -27,7 +27,7 @@ const SKY_FRAG = `
 uniform vec3 zenith, horizon, azEast, azWest, sunCol, moonCol, fogCol;
 uniform vec3 sunDir, moonDir;
 uniform float sunSize, moonSize, stars, day, time, imgMix, sideMix;
-uniform sampler2D img; uniform bool hasImg;
+uniform sampler2D img; uniform bool hasImg, imgAdd;
 varying vec3 vDir;
 ${NOISE}
 void main() {
@@ -43,7 +43,9 @@ void main() {
   if (hasImg && h > -0.02) {
     vec2 uv = vec2(0.5 + atan(d.x, -d.z) / 2.4, 1.0 - clamp(h / 0.62, 0.0, 1.0));
     vec3 t = texture2D(img, clamp(uv, 0.0, 1.0)).rgb;
-    col = mix(col, t, imgMix * smoothstep(-0.02, 0.05, h));
+    // imgAdd: the way GTA draws skydome.ytd, added on top of the sky colours and scaled
+    // by the stars intensity (picture-sky packs set the colours black and this high)
+    col = imgAdd ? col + t * imgMix * smoothstep(-0.02, 0.05, h) : mix(col, t, imgMix * smoothstep(-0.02, 0.05, h));
   }
   // stars
   if (stars > 0.001 && h > 0.0) {
@@ -92,7 +94,7 @@ const WATER_FRAG = `
 uniform vec3 zenith, horizon, sunCol, fogCol, deep;
 uniform vec3 sunDir, moonDir, moonCol;
 uniform float time, day, fogFar, imgMix;
-uniform sampler2D img; uniform bool hasImg;
+uniform sampler2D img; uniform bool hasImg, imgAdd;
 varying vec3 vPos;
 ${NOISE}
 void main() {
@@ -107,7 +109,7 @@ void main() {
   vec3 r = reflect(v, n);
   float fres = 0.04 + 0.96 * pow(1.0 - max(dot(-v, n), 0.0), 5.0);
   vec3 sky = mix(horizon, zenith, pow(clamp(r.y, 0.0, 1.0), 0.6));
-  if (hasImg) sky = mix(sky, texture2D(img, clamp(vec2(0.5 + atan(r.x, -r.z) / 2.4, 1.0 - clamp(r.y / 0.62, 0.0, 1.0)), 0.0, 1.0)).rgb, imgMix);
+  if (hasImg) { vec3 t = texture2D(img, clamp(vec2(0.5 + atan(r.x, -r.z) / 2.4, 1.0 - clamp(r.y / 0.62, 0.0, 1.0)), 0.0, 1.0)).rgb; sky = imgAdd ? sky + t * imgMix : mix(sky, t, imgMix); }
   vec3 col = mix(deep, sky, fres);
   col += sunCol * pow(max(dot(r, sunDir), 0.0), 220.0) * 6.0 * smoothstep(-0.05, 0.05, sunDir.y);
   col += moonCol * pow(max(dot(r, moonDir), 0.0), 160.0) * 1.5 * smoothstep(-0.05, 0.05, moonDir.y);
@@ -154,7 +156,7 @@ function build() {
   const skyU = {
     zenith: { value: col() }, horizon: { value: col() }, azEast: { value: col() }, azWest: { value: col() }, sunCol: { value: col() }, moonCol: { value: col() }, fogCol: { value: col() },
     sunDir: { value: new THREE.Vector3() }, moonDir: { value: new THREE.Vector3() }, sunSize: { value: 0.02 }, moonSize: { value: 0.018 }, sideMix: { value: 0.3 }, stars: { value: 0 }, day: { value: 1 }, time: { value: 0 },
-    img: { value: null }, hasImg: { value: false }, imgMix: { value: 0 },
+    img: { value: null }, hasImg: { value: false }, imgAdd: { value: false }, imgMix: { value: 0 },
   };
   const sky = new THREE.Mesh(new THREE.SphereGeometry(3000, 48, 24), new THREE.ShaderMaterial({ uniforms: skyU, vertexShader: VERT, fragmentShader: SKY_FRAG, side: THREE.BackSide, depthWrite: false, fog: false }));
   sky.renderOrder = -2;
@@ -165,7 +167,7 @@ function build() {
   clouds.renderOrder = -1;
   scene.add(clouds);
 
-  const waterU = { zenith: skyU.zenith, horizon: skyU.horizon, sunCol: skyU.sunCol, moonCol: skyU.moonCol, fogCol: skyU.fogCol, deep: { value: col() }, sunDir: skyU.sunDir, moonDir: skyU.moonDir, time: skyU.time, day: skyU.day, fogFar: { value: 1500 }, img: skyU.img, hasImg: skyU.hasImg, imgMix: skyU.imgMix };
+  const waterU = { zenith: skyU.zenith, horizon: skyU.horizon, sunCol: skyU.sunCol, moonCol: skyU.moonCol, fogCol: skyU.fogCol, deep: { value: col() }, sunDir: skyU.sunDir, moonDir: skyU.moonDir, time: skyU.time, day: skyU.day, fogFar: { value: 1500 }, img: skyU.img, hasImg: skyU.hasImg, imgAdd: skyU.imgAdd, imgMix: skyU.imgMix };
   const water = new THREE.Mesh(new THREE.PlaneGeometry(8000, 8000), new THREE.ShaderMaterial({ uniforms: waterU, vertexShader: WATER_VERT, fragmentShader: WATER_FRAG, fog: false }));
   water.rotation.x = -Math.PI / 2;
   scene.add(water);
@@ -274,8 +276,13 @@ function render(canvas, sec, hour, opts) {
       S.imgSrc = opts.image;
     }
     U.img.value = S.imgTex; U.hasImg.value = true;
-    U.imgMix.value = opts.allDay ? 0.95 : clamp01(1 - dl * 1.6) * 0.95;
-  } else { U.hasImg.value = false; U.imgMix.value = 0; }
+    U.imgAdd.value = !!opts.additive;
+    if (opts.additive) {
+      // the picture is the game's own starfield: it takes the stars' place
+      U.imgMix.value = Math.min(1.5, Math.max(0, scalar(sec, /stars_iten/, hour, 0)));
+      U.stars.value = 0;
+    } else U.imgMix.value = opts.allDay ? 0.95 : clamp01(1 - dl * 1.6) * 0.95;
+  } else { U.hasImg.value = false; U.imgAdd.value = false; U.imgMix.value = 0; }
 
   setC(S.cloudU.cloudCol.value, mix(c.cloud, [1, 1, 1], 0.15 * dl));
   setC(S.cloudU.shadeCol.value, mix(c.cloud, c.zenith, 0.55), 0.8);

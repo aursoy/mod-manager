@@ -4,6 +4,7 @@
 //   Black mountains   visualsettings.dat  (how far the game draws: misc.Multiplier.farClipMultiplier)
 //   Player detail     visualsettings.dat  (how far away players keep their full model: ped.lod.distance.*)
 //   Snow              weather.xml         (the Snow / SnowMist value of every weather type)
+//   Still clouds      clouds.xml          (cloud hats stop turning and scrolling)
 //   Visual settings   visualsettings.dat  (any line, from the editor)
 // Each change remembers exactly what was there before it, so switching it off puts
 // that back: a pack's file stays the pack's file. The visualsettings.dat options each
@@ -16,10 +17,12 @@ const { parseVS, setValues, packMountainKeys, FAR_CLIP } = require('./visualsett
 
 const VS = 'common/data/visualsettings.dat';
 const WEATHER = 'common/data/levels/gta5/weather.xml';
+const CLOUDS = 'common/data/clouds.xml';
 // where the same files live inside the game, newest first
 const GAME_PATHS = {
   [VS]: [['update/update.rpf', 'common/data/visualsettings.dat'], ['common.rpf', 'data/visualsettings.dat']],
   [WEATHER]: [['update/update.rpf', 'common/data/levels/gta5/weather.xml'], ['common.rpf', 'data/levels/gta5/weather.xml']],
+  [CLOUDS]: [['update/update.rpf', 'common/data/clouds.xml'], ['common.rpf', 'data/clouds.xml']],
 };
 const REMOVED_FAR_CLIP = 0.5;
 const VS_OWNER = 'visualsettings';
@@ -173,6 +176,33 @@ class WorldFiles {
     return this.pedLod();
   }
 
+  // ---------- still clouds ----------
+  // Every cloud hat in clouds.xml has a spin (mAngularVelocity), a scroll per layer
+  // (mUVVelocity) and animations (mEnableAnimations); the manager scrolls them with
+  // altitude too (mAltitudeScrollScaler). Zero them all and the clouds stay put.
+
+  stillClouds() {
+    const text = this.current(CLOUDS);
+    if (text == null) return { available: false };
+    const hats = (text.match(/<mAngularVelocity\b/g) || []).length;
+    return { available: hats > 0, on: this.mgr.state.owners[CLOUDS] === 'clouds', hats };
+  }
+
+  setStillClouds(on) {
+    if (!on) { this.unpatch('clouds', CLOUDS); return this.stillClouds(); }
+    const base = this.before('clouds', CLOUDS);
+    if (base == null) throw new Error('No clouds.xml found in your game or packs.');
+    if (!/<mAngularVelocity\b/.test(base)) throw new Error('This clouds.xml has no cloud movement settings.');
+    const zero = (n) => n.replace(/-?\d+(\.\d+)?(e[-+]?\d+)?/gi, (m) => (m.includes('.') ? '0.000000' : '0'));
+    const text = base
+      .replace(/(<mAngularVelocity\b[^>]*?)\/?>/g, (tag) => tag.replace(/(\b[xyz]\s*=\s*")([^"]*)(")/g, (m, a, v, b) => a + '0.000000' + b))
+      .replace(/(<mUVVelocity\b[^>]*>)([\s\S]*?)(<\/mUVVelocity>)/g, (m, a, body, b) => a + zero(body) + b)
+      .replace(/(<mAltitudeScrollScaler\s+value=")[^"]*(")/g, '$10.000000$2')
+      .replace(/(<mEnableAnimations\s+value=")[^"]*(")/g, '$1false$2');
+    this.patch('clouds', CLOUDS, text);
+    return this.stillClouds();
+  }
+
   // ---------- visual settings editor ----------
 
   visualSettings() {
@@ -212,4 +242,4 @@ class WorldFiles {
   }
 }
 
-module.exports = { WorldFiles, VS, WEATHER, PED_LOD };
+module.exports = { WorldFiles, VS, WEATHER, CLOUDS, PED_LOD };

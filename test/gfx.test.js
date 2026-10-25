@@ -841,6 +841,44 @@ test('editor packs: timecycles open from a folder, a .zip and a nested .rpf, and
   assert.ok(fs.existsSync(rf + '.bak'));
 });
 
+test('editor packs: the pack\'s own sky picture is found (loose, in a .zip, in a nested .rpf), and mods-folder packs are listed', () => {
+  const dl = fs.mkdtempSync(path.join(os.tmpdir(), 'kt-edsky-'));
+  const sky = buildYtd(['starfield'], 64, 32);
+  const tc = Buffer.from(buildTimecycle(['EXTRASUNNY']));
+  // folder with a loose skydome.ytd
+  const dir = path.join(dl, 'Pic Pack');
+  fs.mkdirSync(path.join(dir, 'citizen', 'platform', 'textures'), { recursive: true });
+  fs.mkdirSync(path.join(dir, 'citizen', 'common', 'data', 'timecycle'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'citizen', 'platform', 'textures', 'skydome.ytd'), sky);
+  fs.writeFileSync(path.join(dir, 'citizen', 'common', 'data', 'timecycle', 'w_extrasunny.xml'), tc);
+  let got = EditorPack.open(dir).sky();
+  assert.ok(got && /skydome\.ytd$/.test(got.label));
+  const t = got.obj.describe(true)[got.obj.skyIndex()];
+  assert.strictEqual(t.name, 'starfield'); assert.strictEqual(t.width, 64); assert.ok(t.data.length >= 64 * 32 / 2);
+  // zip
+  const AdmZip = require('adm-zip');
+  const z = new AdmZip();
+  z.addFile('p/timecycle/w_rain.xml', tc); z.addFile('p/skydome.ytd', sky);
+  z.writeZip(path.join(dl, 'p.zip'));
+  assert.strictEqual(EditorPack.open(path.join(dl, 'p.zip')).sky().obj.describe()[0].name, 'starfield');
+  // an rpf in FiveM.app/mods with the sky and timecycle inside a nested archive
+  const mods = path.join(dl, 'mods');
+  fs.mkdirSync(mods);
+  const inner = rpf.writeRpf({ type: 'dir', name: '', children: [binOf('w_extrasunny.xml', tc), resOf('skydome.ytd', sky)] });
+  fs.writeFileSync(path.join(mods, 'gfx.rpf'), rpf.writeRpf({ type: 'dir', name: '', children: [binOf('dlc.rpf', inner)] }));
+  fs.writeFileSync(path.join(mods, 'cars.rpf'), rpf.writeRpf({ type: 'dir', name: '', children: [binOf('readme.txt', Buffer.from('x'))] }));
+  const { modsPacks } = require('../src/core/editorpack');
+  const { findInFile } = require('../src/core/rpfscan');
+  assert.deepStrictEqual(modsPacks(mods, findInFile).map((x) => x.name), ['gfx.rpf'], 'only RPFs with timecycles');
+  const rp = EditorPack.open(path.join(mods, 'gfx.rpf'));
+  assert.deepStrictEqual(rp.list().map((f) => f.name), ['w_extrasunny.xml']);
+  assert.ok(/dlc\.rpf\/skydome\.ytd/.test(rp.sky().label));
+  // no sky: null, not an error
+  const bare = path.join(dl, 'bare');
+  fs.mkdirSync(bare); fs.writeFileSync(path.join(bare, 'w_clear.xml'), buildTimecycle(['CLEAR']));
+  assert.strictEqual(EditorPack.open(bare).sky(), null);
+});
+
 test('editor packs: editing an installed pack that is on updates the game too', () => {
   const { m, cit } = makeCitizen();
   const packDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kt-edinst-'));
@@ -852,4 +890,34 @@ test('editor packs: editing an installed pack that is on updates the game too', 
   p.save('common/data/timecycle/w_extrasunny.xml', '<x><cycle name="EDITED"/></x>');
   assert.ok(fs.readFileSync(path.join(cit, 'common', 'data', 'timecycle', 'w_extrasunny.xml'), 'utf8').includes('EDITED'));
   assert.ok(fs.readFileSync(path.join(m.libraryDir(id), 'common', 'data', 'timecycle', 'w_extrasunny.xml'), 'utf8').includes('EDITED'));
+});
+
+test('still clouds: every cloud hat stops turning and scrolling, and off puts clouds.xml back', () => {
+  const { m, cit } = makeCitizen();
+  const XML = `<CloudHatSettings>
+  <mCloudHatFrags>
+    <Item>
+      <mName>Cloudy 01</mName>
+      <mAngularVelocity x="0.000000" y="0.000000" z="0.000150" />
+      <mUVVelocity>
+        0.003000\t-0.001200
+        0.010000\t0.000000
+      </mUVVelocity>
+      <mEnableAnimations value="true" />
+    </Item>
+  </mCloudHatFrags>
+  <mDesiredTransitionTimeSec value="20.000000" />
+  <mAltitudeScrollScaler value="0.120000" />
+</CloudHatSettings>`;
+  const { CLOUDS } = require('../src/core/worldfiles');
+  const wf = new WorldFiles(m, path.join(os.tmpdir(), 'kt-wf5-' + Date.now()), (arc, inner) => (arc === 'update/update.rpf' && inner === 'common/data/clouds.xml' ? Buffer.from(XML) : null));
+  assert.deepStrictEqual(wf.stillClouds(), { available: true, on: false, hats: 1 });
+  assert.strictEqual(wf.setStillClouds(true).on, true);
+  const t = fs.readFileSync(path.join(cit, CLOUDS), 'utf8');
+  assert.ok(t.includes('<mAngularVelocity x="0.000000" y="0.000000" z="0.000000" />'));
+  assert.ok(!/0\.003000|0\.010000|-0\.001200/.test(t), 'scroll speeds zeroed');
+  assert.ok(t.includes('<mEnableAnimations value="false" />') && t.includes('<mAltitudeScrollScaler value="0.000000" />'));
+  assert.ok(t.includes('<mDesiredTransitionTimeSec value="20.000000" />'), 'other values untouched');
+  wf.setStillClouds(false);
+  assert.ok(!fs.existsSync(path.join(cit, CLOUDS)));
 });
