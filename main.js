@@ -375,6 +375,8 @@ app.whenReady().then(() => {
     fs.writeFileSync(r.filePath, bytes);
     return { path: r.filePath, bytes: bytes.length };
   });
+  handle('world:stars', () => worldCall(() => world.stars()));
+  handle('world:setStars', (mode) => worldCall(() => world.setStars(mode)));
   handle('world:lightning', () => worldCall(() => world.lightning()));
   handle('world:setLightning', (off) => worldCall(() => world.setLightning(off)));
   handle('world:thunder', () => worldCall(() => world.thunder()));

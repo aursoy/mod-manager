@@ -125,7 +125,7 @@ function buildMod(plan, read) {
         else skipped.push('weather.xml has no ' + x.field + (all ? '' : ' for ' + x.weather) + '.');
       }
       const snow = Math.max(0, Math.min(1, +plan.snow || 0));
-      if (snow) { text = snowify(text, snow); done.push('snow in every weather (' + Math.round(snow * 100) + '%)'); }
+      if (snow) { text = snowify(text, snow, read.stock ? read.stock(WEATHER) : null); done.push('snow in every weather (' + Math.round(snow * 100) + '%)'); }
       files[WEATHER] = text;
     }
   }

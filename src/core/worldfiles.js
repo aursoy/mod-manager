@@ -18,6 +18,7 @@ const { parseVS, setValues, packMountainKeys, FAR_CLIP } = require('./visualsett
 
 const VS = 'common/data/visualsettings.dat';
 const WEATHER = 'common/data/levels/gta5/weather.xml';
+const TC_WEATHERS = ['extrasunny', 'clear', 'clouds', 'smog', 'foggy', 'overcast', 'rain', 'thunder', 'clearing', 'neutral', 'snow', 'blizzard', 'snowlight', 'xmas', 'halloween'];
 const SNOW_EFFECTS = ['DropSettingName', 'MistSettingName', 'GroundSettingName'];
 const CLOUDS = 'common/data/clouds.xml';
 // where the same files live inside the game, newest first
@@ -245,7 +246,7 @@ class WorldFiles {
     const base = this.before('weather', WEATHER);
     if (base == null) throw new Error('No weather.xml found in your game or packs.');
     let text = base;
-    if (L.snow) text = snowify(text, L.snow);
+    if (L.snow) text = snowify(text, L.snow, this.fromGame(WEATHER));
     if (L.noLightning) text = text.replace(/(<Lightning\s+value=")[^"]*(")/g, '$10.000000$2');
     this.patch('weather', WEATHER, text);
   }
@@ -255,7 +256,21 @@ class WorldFiles {
     if (text == null) return { available: false };
     const vals = [...text.matchAll(/<Snow\s+value="([^"]*)"/g)].map((m) => Number(m[1]) || 0);
     const L = this.weatherLayers;
-    return { available: vals.length > 0, amount: L.snow || (vals.length ? Math.max(...vals) : 0), on: !!L.snow, weathers: vals.length };
+    return { available: /<Item>/.test(text), modsWeather: this.modsWith(/^weather\.xml$/i), amount: L.snow || (vals.length ? Math.max(...vals) : 0), on: !!L.snow, weathers: vals.length };
+  }
+
+  /** RPFs in FiveM.app/mods with a file of this name inside (a pack there may load its own copy). */
+  modsWith(test) {
+    const c = this.mgr.state.citizenPath;
+    if (!c) return [];
+    const dir = path.join(path.dirname(c), 'mods');
+    const out = [];
+    let names = [];
+    try { names = fs.readdirSync(dir).filter((n) => /\.rpf$/i.test(n)); } catch (e) { return out; }
+    for (const n of names) {
+      try { if (require('./rpfscan').findInFile(path.join(dir, n), test).length) out.push(n); } catch (e) { /* encrypted or unreadable */ }
+    }
+    return out;
   }
 
   /** amount 0..1: snow for every weather type. 0 takes it out again. */
@@ -264,7 +279,7 @@ class WorldFiles {
     if (amount) {
       const base = this.before('weather', WEATHER);
       if (base == null) throw new Error('No weather.xml found in your game or packs.');
-      if (!/<Snow\s+value=/.test(base)) throw new Error('This weather.xml has no snow settings.');
+      if (!/<Item>/.test(base)) throw new Error('This weather.xml has no weather types in it.');
     }
     this.weatherLayers.snow = amount || 0;
     this.writeWeather();
@@ -287,6 +302,47 @@ class WorldFiles {
     this.weatherLayers.noLightning = !!off;
     this.writeWeather();
     return this.lightning();
+  }
+
+  // ---------- stars (every weather's timecycle, a pack's included) ----------
+
+  starFiles() {
+    const rels = new Set(TC_WEATHERS.map((w) => 'common/data/timecycle/w_' + w + '.xml'));
+    // a pack's own timecycle files, whatever they are called
+    const dir = this.mgr.state.citizenPath && path.join(this.mgr.state.citizenPath, 'common', 'data', 'timecycle');
+    try { for (const n of fs.readdirSync(dir)) if (/\.xml$/i.test(n)) rels.add('common/data/timecycle/' + n); } catch (e) { /* none */ }
+    for (const rel of this.w.starsRels || []) rels.add(rel);
+    return [...rels];
+  }
+
+  stars() {
+    const mode = this.w.stars || 'pack';
+    const sample = this.current('common/data/timecycle/w_clear.xml') || this.current('common/data/timecycle/w_extrasunny.xml');
+    // picture-sky packs show their sky picture through the stars setting
+    const zen = sample && /<sky_zenith_col_r>([^<]*)</.exec(sample);
+    const pictureSky = !!(zen && zen[1].trim().split(/\s+/).every((x) => Number(x) < 0.02) && /<sky_stars_iten>\s*[1-9]/.test(sample));
+    return { available: !!sample && /<sky_stars_iten>/.test(sample), mode, pictureSky };
+  }
+
+  /** mode: 'pack' (as your pack has it) | 'on' (stars every night) | 'off' (no stars) */
+  setStars(mode) {
+    for (const rel of this.w.starsRels || []) this.unpatch('stars', rel);
+    delete this.w.starsRels; delete this.w.stars;
+    if (mode === 'on' || mode === 'off') {
+      const rels = [];
+      for (const rel of this.starFiles()) {
+        const base = this.before('stars', rel);
+        if (base == null || !/<sky_stars_iten>/.test(base)) continue;
+        const text = starsText(base, mode);
+        if (text === base && this.mgr.state.owners[rel] == null) continue; // the game's own file already does this
+        this.patch('stars', rel, text);
+        rels.push(rel);
+      }
+      if (!rels.length && mode === 'off') throw new Error('No timecycle files with stars found.');
+      this.w.stars = mode; this.w.starsRels = rels;
+    }
+    this.mgr.save();
+    return this.stars();
   }
 
   // ---------- thunder (GTA V's audio archives) ----------
@@ -340,17 +396,56 @@ function stillCloudsText(base) {
 
 /** Snow in every weather: the amount, plus XMAS's falling-particle, mist and ground effects
  *  (the amount alone shows nothing on weathers whose effects are not snowy). */
-function snowify(base, amount) {
+function snowify(base, amount, stock = null) {
   const v = amount.toFixed(6);
-  const items = base.match(/<Item>[\s\S]*?<\/Item>/g) || [];
-  const snowy = ['XMAS', 'BLIZZARD', 'SNOW', 'SNOWLIGHT'].map((n) => items.find((it) => new RegExp('<Name>\\s*' + n + '\\s*</Name>', 'i').test(it))).find(Boolean);
+  // Graphics packs often blank the snow effects (or drop the snowy weathers) in their own
+  // weather.xml, so the effect names come from the game's own file first.
+  const snowyItem = (text) => {
+    const items = String(text || '').match(/<Item>[\s\S]*?<\/Item>/g) || [];
+    return ['XMAS', 'BLIZZARD', 'SNOW', 'SNOWLIGHT'].map((n) => items.find((it) => new RegExp('<Name>\\s*' + n + '\\s*</Name>', 'i').test(it))).find(Boolean);
+  };
   const effects = {};
-  if (snowy) for (const tag of SNOW_EFFECTS) { const m = new RegExp('<' + tag + '>([^<]*)</' + tag + '>').exec(snowy); if (m) effects[tag] = m[1]; }
+  for (const src of [snowyItem(stock), snowyItem(base)]) {
+    if (!src) continue;
+    for (const tag of SNOW_EFFECTS) {
+      const m = new RegExp('<' + tag + '>([^<]+)</' + tag + '>').exec(src);
+      if (m && m[1].trim() && !effects[tag]) effects[tag] = m[1].trim();
+    }
+  }
+  const setValue = (it, tag, val) => (new RegExp('<' + tag + '\\s+value=').test(it)
+    ? it.replace(new RegExp('(<' + tag + '\\s+value=")[^"]*(")'), '$1' + val + '$2')
+    : it.replace(/(<\/Name>)/, '$1<' + tag + ' value="' + val + '"/>')); // a pack that removed the line
   return base.replace(/<Item>[\s\S]*?<\/Item>/g, (it) => {
-    let out = it.replace(/(<Snow\s+value=")[^"]*(")/g, '$1' + v + '$2').replace(/(<SnowMist\s+value=")[^"]*(")/g, '$1' + (amount * 0.6).toFixed(6) + '$2');
-    for (const [tag, val] of Object.entries(effects)) out = out.replace(new RegExp('(<' + tag + '>)[^<]*(</' + tag + '>)'), '$1' + val + '$2').replace(new RegExp('<' + tag + '\\s*/>'), '<' + tag + '>' + val + '</' + tag + '>');
+    let out = setValue(setValue(it, 'Snow', v), 'SnowMist', (amount * 0.6).toFixed(6));
+    for (const [tag, val] of Object.entries(effects)) {
+      if (new RegExp('<' + tag + '>[^<]*</' + tag + '>').test(out)) out = out.replace(new RegExp('(<' + tag + '>)[^<]*(</' + tag + '>)'), '$1' + val + '$2');
+      else if (new RegExp('<' + tag + '\\s*/>').test(out)) out = out.replace(new RegExp('<' + tag + '\\s*/>'), '<' + tag + '>' + val + '</' + tag + '>');
+      else out = out.replace(/(<\/Name>)/, '$1<' + tag + '>' + val + '</' + tag + '>');
+    }
     return out;
   });
 }
 
-module.exports = { WorldFiles, VS, WEATHER, CLOUDS, PED_LOD, GAME_PATHS, stillCloudsText, snowify };
+// Timecycle key hours: GTA's files have 9 or 13 boxes a day.
+function keyHours(n) {
+  if (n === 9) return [0, 5, 6, 7, 12, 17, 18, 19, 21];
+  if (n === 13) return [0, 5, 6, 7, 9, 12, 15, 17, 18, 19, 20, 21, 22];
+  return Array.from({ length: n }, (_, i) => (i * 24) / n);
+}
+
+/** sky_stars_iten in a timecycle: 'off' = no stars; 'on' = at least 1 at night. */
+function starsText(text, mode) {
+  return text.replace(/(<sky_stars_iten>)([^<]*)(<\/sky_stars_iten>)/g, (m, a, body, b) => {
+    const vals = body.trim().split(/\s+/);
+    const hrs = keyHours(vals.length);
+    return a + vals.map((x, i) => {
+      const n = Number(x);
+      if (!Number.isFinite(n)) return x;
+      if (mode === 'off') return '0.0000';
+      const night = hrs[i] <= 4 || hrs[i] >= 20.5;
+      return night ? String(Math.max(n, 1)) : x;
+    }).join(' ') + b;
+  });
+}
+
+module.exports = { WorldFiles, VS, WEATHER, CLOUDS, PED_LOD, GAME_PATHS, stillCloudsText, snowify, starsText };
