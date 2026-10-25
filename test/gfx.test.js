@@ -803,3 +803,53 @@ test('blood FX: an RPF with no textures says what is inside it', async () => {
   fs.writeFileSync(file, rpf.writeRpf({ type: 'dir', name: '', children: [binOf('readme.txt', Buffer.from('hi'))] }));
   await assert.rejects(tex.openFiles('blood', [file], { pack: null, mgr: m, gtaDirs: () => [], unlock: null }), /Inside: readme\.txt/);
 });
+
+// ---------- advanced editor: any pack, installed or not ----------
+const { EditorPack } = require('../src/core/editorpack');
+
+test('editor packs: timecycles open from a folder, a .zip and a nested .rpf, and saves go back into that pack', () => {
+  const dl = fs.mkdtempSync(path.join(os.tmpdir(), 'kt-edpack-'));
+  const xml = buildTimecycle(['EXTRASUNNY']);
+  // folder
+  const dir = path.join(dl, 'Night Pack');
+  fs.mkdirSync(path.join(dir, 'citizen', 'common', 'data', 'timecycle'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'citizen', 'common', 'data', 'timecycle', 'w_extrasunny.xml'), xml);
+  fs.writeFileSync(path.join(dir, 'readme.xml'), '<readme>hi</readme>');
+  let p = EditorPack.open(dir);
+  assert.deepStrictEqual(p.list().map((f) => f.name), ['w_extrasunny.xml'], 'only timecycles');
+  p.save(p.list()[0].rel, xml.replace('EXTRASUNNY', 'EXTRASUNNY ').trimEnd() + '\n');
+  assert.ok(fs.existsSync(path.join(dir, 'citizen', 'common', 'data', 'timecycle', 'w_extrasunny.xml.bak')));
+  assert.ok(EditorPack.open(dir).read(p.list()[0].rel).includes('EXTRASUNNY '));
+  // zip
+  const AdmZip = require('adm-zip');
+  const z = new AdmZip();
+  z.addFile('pack/timecycle/w_rain.xml', Buffer.from(buildTimecycle(['RAIN'])));
+  const zf = path.join(dl, 'rain.zip');
+  z.writeZip(zf);
+  p = EditorPack.open(zf);
+  assert.deepStrictEqual(p.list().map((f) => f.rel), ['pack/timecycle/w_rain.xml']);
+  p.save('pack/timecycle/w_rain.xml', '<x><cycle name="RAIN_EDIT"/></x>');
+  assert.ok(EditorPack.open(zf).read('pack/timecycle/w_rain.xml').includes('RAIN_EDIT'));
+  // rpf with the timecycle inside a nested update.rpf
+  const inner = rpf.writeRpf({ type: 'dir', name: '', children: [{ type: 'dir', name: 'common', children: [{ type: 'dir', name: 'data', children: [{ type: 'dir', name: 'timecycle', children: [binOf('w_clear.xml', Buffer.from(buildTimecycle(['CLEAR'])))] }] }] }] });
+  const rf = path.join(dl, 'gfx.rpf');
+  fs.writeFileSync(rf, rpf.writeRpf({ type: 'dir', name: '', children: [binOf('update.rpf', inner)] }));
+  p = EditorPack.open(rf);
+  assert.deepStrictEqual(p.list().map((f) => f.rel), ['update.rpf/common/data/timecycle/w_clear.xml']);
+  p.save('update.rpf/common/data/timecycle/w_clear.xml', '<x><cycle name="CLEAR_EDIT"/></x>');
+  assert.ok(EditorPack.open(rf).read('update.rpf/common/data/timecycle/w_clear.xml').includes('CLEAR_EDIT'));
+  assert.ok(fs.existsSync(rf + '.bak'));
+});
+
+test('editor packs: editing an installed pack that is on updates the game too', () => {
+  const { m, cit } = makeCitizen();
+  const packDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kt-edinst-'));
+  fs.mkdirSync(path.join(packDir, 'citizen', 'common', 'data', 'timecycle'), { recursive: true });
+  fs.writeFileSync(path.join(packDir, 'citizen', 'common', 'data', 'timecycle', 'w_extrasunny.xml'), buildTimecycle(['EXTRASUNNY']));
+  const id = m.addCustom('Pack', [packDir], 'pack');
+  m.setTweak(id, true);
+  const p = EditorPack.installed(m, id);
+  p.save('common/data/timecycle/w_extrasunny.xml', '<x><cycle name="EDITED"/></x>');
+  assert.ok(fs.readFileSync(path.join(cit, 'common', 'data', 'timecycle', 'w_extrasunny.xml'), 'utf8').includes('EDITED'));
+  assert.ok(fs.readFileSync(path.join(m.libraryDir(id), 'common', 'data', 'timecycle', 'w_extrasunny.xml'), 'utf8').includes('EDITED'));
+});

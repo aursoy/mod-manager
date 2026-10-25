@@ -184,13 +184,14 @@
         <!-- Advanced editor -->
         <div class="gfx-pane hidden" data-pane="editor">
           <div class="card ted-bar">
+            <label class="ted-field"><span>Pack</span><select id="tce-src" class="tc-select"></select></label>
             <label class="ted-field grow"><span>File</span><select id="tce-file" class="tc-select"></select></label>
             <label class="ted-field"><span>Weather</span><select id="tce-cycle" class="tc-select"></select></label>
             <div class="ted-field" id="tce-area-wrap"><span>Area</span><div class="seg" id="tce-area"></div></div>
-            <button class="btn ghost sm" id="tce-open"><i data-icon="folder"></i>Open other file</button>
+            <button class="btn ghost sm" id="tce-open"><i data-icon="folder"></i>Open file</button>
             <div class="ted-save">
               <span class="tag" id="tce-dirty">No changes</span>
-              <small class="ted-save-hint" id="tce-save-hint">Nothing is written to your game until you press Save to game.</small>
+              <small class="ted-save-hint" id="tce-save-hint"></small>
               <button class="btn ghost sm" id="tce-revert"><i data-icon="undo"></i>Undo all</button>
               <button class="btn ghost sm" id="tce-weather" title="FiveM only reads w_*.xml weather files. This copies the file over the sunny and clear weather."><i data-icon="sun"></i>Use for sunny weather</button>
               <button class="btn ghost sm" id="tce-export"><i data-icon="download"></i>Export</button>

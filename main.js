@@ -15,6 +15,7 @@ const { openSkySource, skySources } = require('./src/core/skysource');
 const { listSources, openSource, openFiles } = require('./src/core/texsource');
 const { WorldFiles } = require('./src/core/worldfiles');
 const { askPackAi, isAnthropic, DEFAULT_ANTHROPIC_MODEL } = require('./src/core/packai');
+const { EditorPack } = require('./src/core/editorpack');
 const { readFileFrom } = require('./src/core/rpfscan');
 const { GtaKeys, findAesKey, findGtaExes } = require('./src/core/ngcrypto');
 
@@ -217,6 +218,26 @@ app.whenReady().then(() => {
     fs.writeFileSync(r.filePath, xml);
     return r.filePath;
   });
+  // ----- Advanced editor: timecycles from any pack, installed or not -----
+  let edPack = null;
+  handle('editor:packs', () => mgr.listTweaks().filter((t) => t.kind === 'pack').map((t) => ({ id: t.id, name: t.name, enabled: t.enabled })));
+  handle('editor:openPack', async (src) => {
+    if (src && src.id) edPack = EditorPack.installed(mgr, src.id);
+    else {
+      let p = src && src.path;
+      if (!p) {
+        const r = await dialog.showOpenDialog(win, { title: 'Open a graphics pack (folder, .zip or .rpf)', properties: ['openFile', 'openDirectory'], filters: [{ name: 'Graphics pack', extensions: ['zip', 'rpf', 'xml'] }] });
+        if (r.canceled) return null;
+        p = r.filePaths[0];
+      }
+      edPack = EditorPack.open(p);
+    }
+    if (!edPack.files.length) { const n = edPack.name; edPack = null; throw new Error(n + ' has no timecycle files.'); }
+    return { name: edPack.name, files: edPack.list() };
+  });
+  handle('editor:readPack', (rel) => { if (!edPack) throw new Error('Open a pack first.'); return edPack.read(rel); });
+  handle('editor:savePack', (rel, xml) => { if (!edPack) throw new Error('Open a pack first.'); return edPack.save(rel, xml); });
+
   // ----- Pack AI: a dropped pack to build on, and the sky texture -----
   const gtaDirs = () => findGtaDirs({ citizenPath: mgr.state.citizenPath, knownExe: cachedExe(), exes: findGtaExes() });
   handle('gfx:loadPack', (sources) => {

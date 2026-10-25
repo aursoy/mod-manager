@@ -38,6 +38,7 @@ let pane = 'ai';
 const ed = {
   rel: null, name: '', model: null, sectionId: null, hour: 12, group: 'all', query: '', open: null,
   items: [], playing: null, drawQueued: false, external: null, aiDraft: null,
+  src: 'game', pack: null, // which pack the File list comes from (your game, an installed pack, or one on disk)
 };
 const GRADE_GROUPS = ['sky', 'sun', 'cloud', 'light', 'ambient', 'fog'];
 
@@ -64,7 +65,9 @@ function setDirtyTag() {
   const tag = $('#tce-dirty');
   tag.textContent = n ? n + ' setting' + (n === 1 ? '' : 's') + ' changed' : 'No changes';
   tag.classList.toggle('solid', n > 0);
-  $('#tce-save-hint').textContent = n ? 'Not saved yet. Press Save to game to use it, or Save as pack to keep it as a pack.' : 'Nothing is written to your game until you press Save to game.';
+  $('#tce-save-hint').textContent = n ? 'Not saved' : '';
+  const inPack = ed.rel && ed.rel.startsWith('pk:');
+  $('#tce-save').innerHTML = icon('save') + (inPack ? 'Save to pack' : 'Save to game');
   for (const id of ['tce-export', 'tce-pack', 'tce-save']) $('#' + id).disabled = !ed.model;
   $('#tce-revert').disabled = !n;
   // FiveM only reads w_*.xml weather files; offer to hook up anything else.
@@ -72,11 +75,46 @@ function setDirtyTag() {
   $('#tce-weather').classList.toggle('hidden', !(citizenFile && !/^w_/i.test(ed.name)));
 }
 
+async function populateSources() {
+  const packs = await api.call('editor:packs').catch(() => []);
+  const sel = $('#tce-src');
+  let html = '<option value="game">Your game</option>' + packs.map((p) => `<option value="pack:${esc(p.id)}">${esc(p.name)}${p.enabled ? '' : ' (off)'}</option>`).join('');
+  if (ed.src === 'file' && ed.pack) html += `<option value="file">${esc(ed.pack.name)}</option>`;
+  html += '<option value="__open__">Open a pack…</option>';
+  sel.innerHTML = html;
+  sel.value = [...sel.options].some((o) => o.value === ed.src) ? ed.src : 'game';
+}
+
+async function chooseSource(value) {
+  const sel = $('#tce-src');
+  if (ed.model && TC.isDirty(ed.model) && !(await ctx.modal({ title: 'Throw away your changes?', text: 'You changed ' + ed.name + ' but did not save it.', confirm: 'Throw away', danger: true }))) { sel.value = ed.src; return; }
+  try {
+    if (value === 'game') { ed.src = 'game'; ed.pack = null; }
+    else {
+      const r = await api.call('editor:openPack', value === '__open__' ? {} : { id: value.slice(5) });
+      if (!r) { sel.value = ed.src; return; }
+      ed.src = value === '__open__' ? 'file' : value;
+      ed.pack = r;
+    }
+  } catch (e) { notify.error('Could not open pack', e.message); sel.value = ed.src; return; }
+  await populateSources();
+  const items = await populateFiles();
+  const first = ed.pack ? (ed.pack.files.find((f) => /extrasunny/i.test(f.name)) || ed.pack.files[0]) : (items.find((i) => /extrasunny/i.test(i.name)) || items[0]);
+  if (first) { const rel = ed.pack ? 'pk:' + first.rel : first.rel; $('#tce-file').value = rel; await openRel(rel, { force: true }); }
+  else { ed.model = null; paintEditor(); }
+}
+
 async function populateFiles(selectRel) {
+  const sel = $('#tce-file');
+  if (ed.pack) {
+    sel.innerHTML = ed.pack.files.map((f) => `<option value="pk:${esc(f.rel)}">${esc(f.name)}</option>`).join('');
+    const want = selectRel || ed.rel;
+    if (want && [...sel.options].some((o) => o.value === want)) sel.value = want;
+    return ed.pack.files;
+  }
   let items = [];
   try { items = (await api.call('colour:scan')).items || []; } catch (e) { /* citizen not linked */ }
   ed.items = items;
-  const sel = $('#tce-file');
   let html = items.length ? '' : '<option value="">No timecycle files in your game yet</option>';
   html += items.map((it) => `<option value="${esc(it.rel)}">${esc(it.name)}</option>`).join('');
   if (ed.external) html += `<option value="__ext__">${esc(ed.external.name)} (from your computer)</option>`;
@@ -99,6 +137,10 @@ async function openRel(rel, { force = false } = {}) {
     } else if (rel === '__ai__') {
       ed.rel = '__ai__'; ed.name = ed.aiDraft.name;
       ed.model = TC.parse(ed.aiDraft.xml);
+    } else if (rel.startsWith('pk:')) {
+      const xml = await api.call('editor:readPack', rel.slice(3));
+      ed.rel = rel; ed.name = rel.split('/').pop();
+      ed.model = TC.parse(xml);
     } else {
       const xml = await api.call('timecycle:read', rel);
       ed.rel = rel; ed.name = rel.split('/').pop();
@@ -296,11 +338,26 @@ function togglePlay() {
 function currentXml() { return TC.serialize(ed.model); }
 function targetRel() {
   if (ed.rel === '__ai__') return ed.aiDraft.rel;
-  return ed.rel && ed.rel !== '__ext__' ? ed.rel : 'common/data/timecycle/' + ed.name;
+  return ed.rel && ed.rel !== '__ext__' && !ed.rel.startsWith('pk:') ? ed.rel : 'common/data/timecycle/' + ed.name;
+}
+
+async function saveToPack(btn) {
+  busy(btn, true);
+  try {
+    const xml = currentXml();
+    const where = await api.call('editor:savePack', ed.rel.slice(3), xml);
+    const keep = ed.sectionId;
+    ed.model = TC.parse(xml);
+    ed.sectionId = keep;
+    paintEditor();
+    notify.success('Saved', ed.name + ' in ' + where);
+  } catch (e) { notify.error('Could not save', e.message); }
+  busy(btn, false);
 }
 
 async function saveToFiveM(btn) {
   if (!ed.model) return;
+  if (ed.rel && ed.rel.startsWith('pk:')) return saveToPack(btn);
   busy(btn, true);
   try {
     const xml = currentXml();
@@ -372,6 +429,7 @@ function paintQuick() {
 
 function initEditor() {
   $('#tce-file').onchange = (e) => openRel(e.target.value);
+  $('#tce-src').onchange = (e) => chooseSource(e.target.value);
   $('#tce-cycle').onchange = (e) => {
     const area = section() ? TC.splitSection(section().label).area : null;
     const same = usable().filter((x) => TC.splitSection(x.label).weather === e.target.value);
@@ -406,6 +464,7 @@ function initEditor() {
 }
 
 async function enterEditor() {
+  await populateSources();
   const items = await populateFiles();
   if (!ed.model) {
     const first = items.find((i) => /extrasunny/i.test(i.name)) || items.find((i) => i.isWeather) || items[0];
