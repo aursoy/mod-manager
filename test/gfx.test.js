@@ -762,8 +762,8 @@ test('blood FX: the RPF the player picks is edited in place and goes into mods u
   const src = await tex.openFiles('blood', [file], ctx);
   assert.deepStrictEqual(src.items.map((x) => x.path).sort(), ['readme_tex.ytd', 'x64.rpf/custom_splats.ytd'], 'no known blood names: every texture in the chosen RPF is shown');
   assert.deepStrictEqual(src.outputs(), {}, 'nothing changed yet');
-  const k = src.items.findIndex((x) => x.file === 'custom_splats.ytd');
-  src.replace(k, 0, new Uint8Array(src.items[k].ytd.textures[0].dataSize).fill(0x22));
+  const it = src.items.find((x) => x.file === 'custom_splats.ytd');
+  src.replace(it.key, 0, new Uint8Array(it.ytd.textures[0].dataSize).fill(0x22));
   const out = src.outputs();
   assert.deepStrictEqual(Object.keys(out), ['@mods/MyBlood_v2.rpf']);
   assert.strictEqual(src.files()[0].name, 'MyBlood_v2.rpf');
@@ -774,7 +774,7 @@ test('blood FX: the RPF the player picks is edited in place and goes into mods u
   assert.ok(!at(await tex.openFiles('blood', [file], ctx)).every((b) => b === 0x22), 'the picked file itself is untouched');
 });
 
-test('blood FX: an RPF whose blood is in core.ypt (particle textures) opens, shows only the blood textures, and installs', async () => {
+test('blood FX: an RPF whose blood is in core.ypt (particle textures) opens with every texture, blood first, and installs', async () => {
   const { m, cit } = makeCitizen();
   const dl = fs.mkdtempSync(path.join(os.tmpdir(), 'kt-dl-sev-'));
   const file = path.join(dl, 'Severance.rpf');
@@ -786,7 +786,7 @@ test('blood FX: an RPF whose blood is in core.ypt (particle textures) opens, sho
   const src = await tex.openFiles('blood', [file], ctx);
   assert.strictEqual(src.items.length, 1);
   assert.strictEqual(src.items[0].name, 'Blood sprays (particles)');
-  assert.deepStrictEqual(src.items[0].only.map((i) => src.items[0].ytd.textures[i].name), ['blood_spray_01', 'blood_mist']);
+  assert.deepStrictEqual(src.items[0].order.map((i) => src.items[0].ytd.textures[i].name), ['blood_spray_01', 'blood_mist', 'fire_flame', 'smoke_puff']);
   src.replace(0, 1, new Uint8Array(src.items[0].ytd.textures[1].dataSize).fill(0x55));
   const out = src.outputs();
   assert.deepStrictEqual(Object.keys(out), ['@mods/Severance.rpf']);

@@ -307,7 +307,13 @@ app.whenReady().then(() => {
   // ----- texture labs: clouds, blood FX -----
   const labs = {};
   const PACK_NAMES = { clouds: 'Custom clouds', blood: 'Custom blood FX' };
-  const labInfo = (kind) => ({ label: labs[kind].label, items: labs[kind].items.map((x) => ({ key: x.key, name: x.name, file: x.file, path: x.path, textures: x.ytd.describe(true).filter((t) => !x.only || x.only.includes(t.index)) })) });
+  const labInfo = (kind) => ({
+    label: labs[kind].label,
+    items: labs[kind].items.map((x) => {
+      const all = x.ytd.describe(true);
+      return { key: x.key, name: x.name, file: x.file, path: x.path, textures: x.order ? x.order.map((i) => all[i]) : all };
+    }),
+  });
   handle('tex:list', (kind) => listSources(kind, skyCtx()));
   handle('tex:open', async (kind, id) => { labs[kind] = await openSource(kind, id, skyCtx()); return labInfo(kind); });
   handle('tex:openFiles', async (kind, given) => {
