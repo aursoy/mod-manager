@@ -467,8 +467,8 @@ app.whenReady().then(() => {
     discord.busy = false;
     if (win && !win.isDestroyed()) win.webContents.send('profile:changed');
   };
-  setTimeout(autoDiscord, 1500);
-  setInterval(autoDiscord, 30000);
+  setTimeout(autoDiscord, 1500).unref();
+  setInterval(autoDiscord, 30000).unref();
   handle('discord:activity', (details, state) => discord.setActivity(details, state, startedAt));
 
   // ----- gun lab -----

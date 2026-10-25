@@ -836,6 +836,8 @@ class CitizenManager {
     fs.rmSync(path.join(this.dir, 'colourbase'), { recursive: true, force: true });
     this.state.colourBase = {};
     this.state.colour = null;
+    // World options (black mountains, player detail, snow, visual settings) are off again too
+    this.state.world = {};
     this.log('warning', 'Restored ' + n + ' file(s) to stock');
     this.save();
     return n;
