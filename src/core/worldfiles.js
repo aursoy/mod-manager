@@ -67,7 +67,9 @@ class WorldFiles {
   }
 
   fromGame(rel) {
-    for (const [arc, inner] of GAME_PATHS[rel] || []) {
+    // any other data file: update.rpf first, then common.rpf
+    const paths = GAME_PATHS[rel] || (/^common\/data\//.test(rel) ? [['update/update.rpf', rel], ['common.rpf', rel.replace(/^common\//, '')]] : []);
+    for (const [arc, inner] of paths) {
       try { const b = this.readGame(arc, inner); if (b) return b.toString('utf8'); } catch (e) { if (e.code === 'NEED_KEYS') this.needKeys = true; }
     }
     return null;
@@ -202,13 +204,7 @@ class WorldFiles {
     const base = this.before('clouds', CLOUDS);
     if (base == null) throw new Error('No clouds.xml found in your game or packs.');
     if (!/<mAngularVelocity\b/.test(base)) throw new Error('This clouds.xml has no cloud movement settings.');
-    const zero = (n) => n.replace(/-?\d+(\.\d+)?(e[-+]?\d+)?/gi, (m) => (m.includes('.') ? '0.000000' : '0'));
-    const text = base
-      .replace(/(<mAngularVelocity\b[^>]*?)\/?>/g, (tag) => tag.replace(/(\b[xyz]\s*=\s*")([^"]*)(")/g, (m, a, v, b) => a + '0.000000' + b))
-      .replace(/(<mUVVelocity\b[^>]*>)([\s\S]*?)(<\/mUVVelocity>)/g, (m, a, body, b) => a + zero(body) + b)
-      .replace(/(<mAltitudeScrollScaler\s+value=")[^"]*(")/g, '$10.000000$2')
-      .replace(/(<mEnableAnimations\s+value=")[^"]*(")/g, '$1false$2');
-    this.patch('clouds', CLOUDS, text);
+    this.patch('clouds', CLOUDS, stillCloudsText(base));
     return this.stillClouds();
   }
 
@@ -332,6 +328,16 @@ class WorldFiles {
   }
 }
 
+/** clouds.xml with every cloud hat's spin, scroll, altitude scroll and animation off. */
+function stillCloudsText(base) {
+  const zero = (n) => n.replace(/-?\d+(\.\d+)?(e[-+]?\d+)?/gi, (m) => (m.includes('.') ? '0.000000' : '0'));
+  return base
+    .replace(/(<mAngularVelocity\b[^>]*?)\/?>/g, (tag) => tag.replace(/(\b[xyz]\s*=\s*")([^"]*)(")/g, (m, a, v, b) => a + '0.000000' + b))
+    .replace(/(<mUVVelocity\b[^>]*>)([\s\S]*?)(<\/mUVVelocity>)/g, (m, a, body, b) => a + zero(body) + b)
+    .replace(/(<mAltitudeScrollScaler\s+value=")[^"]*(")/g, '$10.000000$2')
+    .replace(/(<mEnableAnimations\s+value=")[^"]*(")/g, '$1false$2');
+}
+
 /** Snow in every weather: the amount, plus XMAS's falling-particle, mist and ground effects
  *  (the amount alone shows nothing on weathers whose effects are not snowy). */
 function snowify(base, amount) {
@@ -347,4 +353,4 @@ function snowify(base, amount) {
   });
 }
 
-module.exports = { WorldFiles, VS, WEATHER, CLOUDS, PED_LOD };
+module.exports = { WorldFiles, VS, WEATHER, CLOUDS, PED_LOD, GAME_PATHS, stillCloudsText, snowify };

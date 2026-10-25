@@ -125,7 +125,7 @@ function anthropicClient(cfg) {
   return new Anthropic({ apiKey: cfg.key || undefined, baseURL: base, timeout: 60000, maxRetries: 1 });
 }
 
-async function askAnthropic(cfg, input) {
+async function askAnthropic(cfg, input, job = { system: SYSTEM, schema: SCHEMA }) {
   const client = anthropicClient(cfg);
   // server-side fallback: if the model declines, the API retries on a fallback model in the same call
   const res = await client.beta.messages.create({
@@ -133,9 +133,9 @@ async function askAnthropic(cfg, input) {
     max_tokens: 16000,
     betas: ['server-side-fallback-2026-07-01'],
     fallbacks: 'default',
-    system: SYSTEM,
-    output_config: { effort: 'low', format: { type: 'json_schema', schema: SCHEMA } },
-    messages: [{ role: 'user', content: userText(input) }],
+    system: job.system,
+    output_config: { effort: 'low', format: { type: 'json_schema', schema: job.schema } },
+    messages: [{ role: 'user', content: job.user || userText(input) }],
   });
   if (res.stop_reason === 'refusal') throw new Error('The AI declined that request.');
   const text = res.content.filter((b) => b.type === 'text').map((b) => b.text).join('');
@@ -151,12 +151,12 @@ function chatUrl(url) {
 
 const authHeaders = (cfg) => (cfg.key ? { authorization: 'Bearer ' + cfg.key } : {});
 
-async function askOpenAiStyle(cfg, input, fetchImpl = fetch) {
+async function askOpenAiStyle(cfg, input, fetchImpl = fetch, job = { system: SYSTEM, schema: SCHEMA }) {
   const body = {
     model: cfg.model,
     messages: [
-      { role: 'system', content: SYSTEM + '\n\nAnswer with only a JSON object of this shape: ' + JSON.stringify(SCHEMA) },
-      { role: 'user', content: userText(input) },
+      { role: 'system', content: job.system + '\n\nAnswer with only a JSON object of this shape: ' + JSON.stringify(job.schema) },
+      { role: 'user', content: job.user || userText(input) },
     ],
     response_format: { type: 'json_object' },
   };
@@ -209,4 +209,14 @@ async function askPackAi(cfg, input, fetchImpl) {
   return out;
 }
 
-module.exports = { askPackAi, listModels, provider, chatUrl, isAnthropic, parseJson, SCHEMA, SYSTEM };
+/** Any other job: { system, schema, user } -> the parsed JSON answer. */
+async function askJson(cfg, job, fetchImpl) {
+  if (!cfg || (!cfg.key && !cfg.url)) throw new Error('No AI set up.');
+  const p = provider(cfg);
+  if (!p) throw new Error('This key is not one the app knows. Add your provider\'s API link too.');
+  const full = { ...cfg, url: p.url, model: cfg.model || (await listModels(cfg, fetchImpl))[0] };
+  if (!full.model) throw new Error('No chat model found for this key.');
+  return p.anthropic ? askAnthropic(full, null, job) : askOpenAiStyle(full, null, fetchImpl, job);
+}
+
+module.exports = { askJson, askPackAi, listModels, provider, chatUrl, isAnthropic, parseJson, SCHEMA, SYSTEM };

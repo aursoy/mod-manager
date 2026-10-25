@@ -887,3 +887,8 @@ body.tilt .view-tabs { gap: 4px; }
 
 .finish-btns { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 8px; }
 .finish-btns .btn.on { background: #fff; color: #000; border-color: #fff; }
+.mk-off { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 18px; }
+.mk-off b { display: block; }
+.mk-off small { color: var(--ink-3); }
+.aip-report li.skip { color: var(--ink-3); }
+.aip-report li.skip::before { content: '–'; color: var(--ink-3); }

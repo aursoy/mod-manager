@@ -7,6 +7,7 @@ import { initLook, setBackgroundFile } from './look.js';
 import { startTour, tourSeen } from './tour.js';
 import { initDropdowns } from './dropdown.js';
 import { refreshWorld, initWorldPage } from './world.js';
+import { initMaker, refreshMaker } from './maker.js';
 
 import { initPages, refreshMods, refreshCache, refreshProfile, addModFiles } from './pages.js';
 
@@ -130,6 +131,7 @@ function refreshPage(page) {
   if (page === 'home') refreshHome();
   if (page === 'graphics') refreshStudio();
   if (page === 'world') refreshWorld();
+  if (page === 'maker') refreshMaker();
   if (page === 'backups') refreshBackups();
   if (page === 'mods') { refreshMods(); refreshPacks(); }
   if (page === 'cache') refreshCache();
@@ -258,6 +260,7 @@ async function loadTweakFiles(t, paths) {
 
 function initWorld() {
   initWorldPage({ toggleTweak, modal, loadTweakFiles });
+  initMaker({ go });
   $('#add-tweak').onclick = async () => {
     const name = await modal({ title: 'New custom tweak', text: 'Next, pick a folder laid out like citizen/ (or containing common/ / platform/).', confirm: 'Choose folder', input: { label: 'Tweak name', value: 'My tweak' } });
     if (!name) return;

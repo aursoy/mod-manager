@@ -14,8 +14,9 @@ const { findGtaDirs, DEFAULT_REL: SKY_REL } = require('./src/core/skytex');
 const { openSkySource, skySources } = require('./src/core/skysource');
 const { listSources, openSource, openFiles } = require('./src/core/texsource');
 const { WorldFiles } = require('./src/core/worldfiles');
-const { askPackAi, listModels, provider: aiProvider } = require('./src/core/packai');
+const { askPackAi, askJson, listModels, provider: aiProvider } = require('./src/core/packai');
 const { EditorPack, modsPacks } = require('./src/core/editorpack');
+const { MOD_SCHEMA, MOD_SYSTEM, modContext, userMessage, buildMod, modRpf } = require('./src/core/modmaker');
 const { readFileFrom, findInFile } = require('./src/core/rpfscan');
 const { GtaKeys, findAesKey, findGtaExes } = require('./src/core/ngcrypto');
 
@@ -347,6 +348,33 @@ app.whenReady().then(() => {
   handle('world:setMountains', (opts) => worldCall(() => world.setMountains(opts)));
   handle('world:pedLod', () => worldCall(() => world.pedLod()));
   handle('world:setPedLod', (on) => worldCall(() => world.setPedLod(on)));
+  // ----- AI Mod Maker -----
+  let madeMod = null; // { name, files, done, skipped }
+  let modCtx = null;
+  handle('mod:ask', async (text, current) => {
+    const read = (rel) => world.current(rel);
+    if (!modCtx || !modCtx.visualsettings.length) modCtx = await worldCall(() => modContext(read));
+    const plan = await askJson(aiCfg(), { system: MOD_SYSTEM, schema: MOD_SCHEMA, user: userMessage(text, modCtx, current) });
+    if (!plan || typeof plan.reply !== 'string') throw new Error('The AI answer was missing parts.');
+    madeMod = await worldCall(() => buildMod(plan, read));
+    return { reply: plan.reply, plan, mod: { name: madeMod.name, done: madeMod.done, skipped: madeMod.skipped, files: Object.keys(madeMod.files) } };
+  });
+  handle('mod:install', () => {
+    if (!madeMod || !Object.keys(madeMod.files).length) throw new Error('Make a mod first.');
+    const id = mgr.createPack(madeMod.name, madeMod.files);
+    const r = mgr.setTweak(id, true);
+    mgr.log('success', 'Installed AI mod "' + madeMod.name + '"');
+    mgr.save();
+    return { id, name: madeMod.name, conflicts: r.conflicts || [] };
+  });
+  handle('mod:saveRpf', async () => {
+    if (!madeMod || !Object.keys(madeMod.files).length) throw new Error('Make a mod first.');
+    const r = await dialog.showSaveDialog(win, { title: 'Save mod as .rpf', defaultPath: madeMod.name.replace(/\s+/g, '_') + '.rpf', filters: [{ name: 'RPF', extensions: ['rpf'] }] });
+    if (r.canceled) return null;
+    const bytes = modRpf(madeMod.files);
+    fs.writeFileSync(r.filePath, bytes);
+    return { path: r.filePath, bytes: bytes.length };
+  });
   handle('world:lightning', () => worldCall(() => world.lightning()));
   handle('world:setLightning', (off) => worldCall(() => world.setLightning(off)));
   handle('world:thunder', () => worldCall(() => world.thunder()));
