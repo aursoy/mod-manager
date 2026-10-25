@@ -59,3 +59,17 @@ test('AI link: the answer becomes the same kind of spec the offline reader makes
   const spec = ai.mergeSpec(ai.emptySpec(), p);
   assert.ok(!ai.isEmptySpec(spec));
 });
+
+test('a key from an AI router on this PC (OmniRoute) is found without typing its link', async () => {
+  const { findGateway } = require('../src/core/packai');
+  const seen = [];
+  const fake = async (url, opts) => {
+    seen.push(url);
+    if (url.startsWith('http://localhost:20128/v1/models') && opts.headers.authorization === 'Bearer sk-omni-123') return { ok: true, json: async () => ({ data: [{ id: 'openai/gpt-4o-mini' }] }) };
+    throw new Error('ECONNREFUSED');
+  };
+  const g = await findGateway('sk-omni-123', fake);
+  assert.strictEqual(g.name, 'OmniRoute');
+  assert.strictEqual(g.url, 'http://localhost:20128/v1');
+  assert.strictEqual(await findGateway('wrong', fake), null);
+});

@@ -89,7 +89,8 @@ function provider(cfg) {
     const byHost = PROVIDERS.find((p) => p.host.test(host));
     if (byHost) return { ...byHost, url: cfg.url };
     // a proxy or local server: speaks Anthropic's API only when the key is an Anthropic key
-    return { name: host, url: cfg.url, anthropic: !!(byKey && byKey.anthropic) };
+    const local = LOCAL_GATEWAYS.find((g) => { try { return new URL(g.url).port === new URL(cfg.url).port && /^(localhost|127\.0\.0\.1)$/.test(host); } catch (e) { return false; } });
+    return { name: local ? local.name : host, url: cfg.url, anthropic: !!(byKey && byKey.anthropic) };
   }
   return byKey ? { ...byKey } : null;
 }
@@ -209,6 +210,28 @@ async function askPackAi(cfg, input, fetchImpl) {
   return out;
 }
 
+// AI routers / local servers people run on their own PC (OpenAI-style API). A key that
+// is not from a known provider, or one the provider it looks like refuses, is tried here.
+const LOCAL_GATEWAYS = [
+  { name: 'OmniRoute', url: 'http://localhost:20128/v1' },
+  { name: 'LiteLLM', url: 'http://localhost:4000/v1' },
+  { name: 'LM Studio', url: 'http://localhost:1234/v1' },
+  { name: 'Ollama', url: 'http://localhost:11434/v1' },
+];
+
+/** The first local gateway that answers with a model list for this key, or null. */
+async function findGateway(key, fetchImpl = fetch) {
+  for (const g of LOCAL_GATEWAYS) {
+    try {
+      const r = await fetchImpl(g.url + '/models', { headers: key ? { authorization: 'Bearer ' + key } : {}, signal: AbortSignal.timeout(2500) });
+      if (!r.ok) continue;
+      const j = await r.json();
+      if (Array.isArray(j.data || j.models)) return g;
+    } catch (e) { /* not running */ }
+  }
+  return null;
+}
+
 /** Any other job: { system, schema, user } -> the parsed JSON answer. */
 async function askJson(cfg, job, fetchImpl) {
   if (!cfg || (!cfg.key && !cfg.url)) throw new Error('No AI set up.');
@@ -219,4 +242,4 @@ async function askJson(cfg, job, fetchImpl) {
   return p.anthropic ? askAnthropic(full, null, job) : askOpenAiStyle(full, null, fetchImpl, job);
 }
 
-module.exports = { askJson, askPackAi, listModels, provider, chatUrl, isAnthropic, parseJson, SCHEMA, SYSTEM };
+module.exports = { findGateway, LOCAL_GATEWAYS, askJson, askPackAi, listModels, provider, chatUrl, isAnthropic, parseJson, SCHEMA, SYSTEM };
