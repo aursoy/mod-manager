@@ -1,4 +1,4 @@
-// Mods folder, presets, cache cleaner, and the profile card / Discord link.
+// Mods folder, cache cleaner, and the profile card / Discord link.
 import { notify } from './notify.js';
 import { icon } from './icons.js';
 import { countUp, stagger, busy } from './fx.js';
@@ -63,41 +63,6 @@ export async function addModFiles(paths) {
     notify.success(r.added.length + ' mod(s) added', r.added.join(', '));
     refreshMods();
   } catch (e) { notify.error('Could not add mods', e.message); }
-}
-
-// ---------- presets ----------
-export async function refreshPresets() {
-  const presets = await api.call('presets:list');
-  const grid = $('#preset-grid');
-  grid.innerHTML = presets.length
-    ? presets.map((p) => `<div class="card preset" data-id="${p.id}">
-        <div class="swatch" style="--c:${p.colour ? esc(p.colour.hex) : '#1a1a1a'}"></div>
-        <div><h3>${esc(p.name)}</h3><small class="mono">${new Date(p.at).toLocaleString()}</small></div>
-        <div class="pmeta">
-          <span class="tag">${p.tweaks.length} tweak${p.tweaks.length === 1 ? '' : 's'}</span>
-          <span class="tag">${p.colour ? 'Grade ' + esc(p.colour.hex) : 'No grade'}</span>
-          ${p.mods ? `<span class="tag">${p.mods.length} mods</span>` : ''}
-        </div>
-        <div class="row-end"><button class="icon-btn" data-act="del" title="Delete">${icon('trash')}</button><button class="btn primary sm" data-act="apply">${icon('zap')}Apply</button></div>
-      </div>`).join('')
-    : `<div class="card empty-card">${icon('bookmark')}<h3>No presets yet</h3><p>Set up your packs, water, mountains, colour and mods, then save it as a preset to switch back in one click.</p></div>`;
-  stagger(grid);
-  $$('.preset', grid).forEach((card) => {
-    const p = presets.find((x) => x.id === card.dataset.id);
-    $('[data-act=apply]', card).onclick = async (e) => {
-      const btn = e.currentTarget;
-      busy(btn, true);
-      try {
-        await notify.promise(api.call('presets:apply', p.id), { loading: 'Applying ' + p.name + '…', success: { title: p.name + ' applied', message: 'Restart FiveM to load it.' }, error: 'Preset failed' });
-      } catch (err) { /* toast shown */ }
-      busy(btn, false);
-    };
-    $('[data-act=del]', card).onclick = async () => {
-      if (!(await modal({ title: 'Delete preset?', text: p.name + ' will be removed. Your files are not touched.', confirm: 'Delete', danger: true }))) return;
-      await api.call('presets:delete', p.id);
-      refreshPresets();
-    };
-  });
 }
 
 // ---------- cache ----------
@@ -239,12 +204,6 @@ export function initPages(ctx) {
   $('#mods-search').addEventListener('input', renderMods);
   $('#mods-add').onclick = async () => { const f = await api.call('pick:files', { title: 'Add .rpf mods', filters: [{ name: 'RPF', extensions: ['rpf'] }] }); if (f) addModFiles(f); };
   $('#mods-open').onclick = () => api.call('mods:open').catch((e) => notify.error('Cannot open', e.message));
-  $('#preset-save').onclick = async () => {
-    const name = await modal({ title: 'Save preset', text: 'Saves which packs and tweaks are on, your colour grade and which mods are enabled.', confirm: 'Save', input: { label: 'Preset name', value: 'My setup' } });
-    if (!name) return;
-    try { await api.call('presets:save', name); notify.success('Preset saved', name); refreshPresets(); }
-    catch (e) { notify.error('Could not save preset', e.message); }
-  };
   $('#cache-refresh').onclick = refreshCache;
   $('#cache-clean').onclick = (e) => cleanCache(e.currentTarget);
   $('#profile-card').onclick = openProfile;

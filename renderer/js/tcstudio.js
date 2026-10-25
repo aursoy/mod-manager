@@ -12,7 +12,7 @@ import { cleanError } from './keys.js';
 import { createLab } from './cloudlab.js';
 
 const graphicsOn = () => document.querySelector('.page[data-page="graphics"]').classList.contains('active');
-const NO_PACK = 'Add a graphics pack under My packs or in Create with AI, or link your citizen folder (Dashboard) so GTA V can be found.';
+const NO_PACK = 'Link your citizen folder on the Dashboard first.';
 const cloudLab = createLab({
   P: 'cl', kind: 'clouds', mount: '#lab-clouds', icon: 'cloud', active: () => pane === 'clouds' && graphicsOn(),
   texts: { what: 'clouds', from: 'Clouds from', list: 'Cloud hats', emptyTitle: 'Looking for your clouds…', emptyText: 'Checking your pack, your mods folder, citizen and GTA V.', none: NO_PACK },
@@ -28,8 +28,8 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const frame = () => new Promise((r) => requestAnimationFrame(r));
 
-let ctx = { modal: null, go: null, refreshGraphics: null };
-let pane = 'packs';
+let ctx = { modal: null, go: null };
+let pane = 'ai';
 
 // =====================================================================
 // Timecycle editor
@@ -314,20 +314,18 @@ async function saveToFiveM(btn) {
     await populateFiles(rel);
     paintEditor();
     notify.success('Saved to your game', ed.name + ' is in your citizen folder. Restart FiveM to see it. Backups can undo it.');
-    ctx.refreshGraphics && ctx.refreshGraphics();
   } catch (e) { notify.error('Could not save', e.message); }
   busy(btn, false);
 }
 
 async function saveAsPack(btn) {
   if (!ed.model) return;
-  const name = await ctx.modal({ title: 'Save as graphics pack', text: 'Saves this file as a pack under My packs, switched off. Nothing in your game changes until you switch it on.', confirm: 'Save pack', input: { label: 'Pack name', value: ed.name.replace(/\.xml$/i, '') + ' edit' } });
+  const name = await ctx.modal({ title: 'Save as graphics pack', confirm: 'Save pack', input: { label: 'Pack name', value: ed.name.replace(/\.xml$/i, '') + ' edit' } });
   if (!name) return;
   busy(btn, true);
   try {
     await api.call('pack:create', name, { [targetRel()]: currentXml() }, {}, { enable: false });
-    notify.success('Pack saved', name + ' is in My packs (switched off). Switch it on there.');
-    ctx.refreshGraphics && ctx.refreshGraphics();
+    notify.success('Pack saved', name + ' is on the Mods page, switched off.');
   } catch (e) { notify.error('Could not save pack', e.message); }
   busy(btn, false);
 }
@@ -437,10 +435,7 @@ function bubble(who, html) {
 
 function greet() {
   aip.log = [];
-  bubble('ai', `<b>Hi! Tell me what you want your game to look like.</b><br>
-    ${icon('image')} Add a <b>picture</b> and it becomes your sky.<br>
-    ${icon('folder')} Add a <b>pack folder</b> (or drop a .zip) and I build on top of it.<br>
-    Then say what you want, like <i>pvp pack</i>, <i>always night</i>, <i>no fog</i>, <i>no sun</i>, <i>add stars</i>, <i>bigger moon</i>, <i>no water</i> or <i>max FPS</i>. I install it for you straight away, and <b>Undo</b> puts everything back.`);
+  bubble('ai', `What pack do you want? Add a picture ${icon('image')} for the sky or a pack ${icon('folder')} to build on.`);
 }
 
 function refreshAiEngine() {
@@ -783,7 +778,6 @@ async function installAi() {
     bubble('ai', `<b>Installed${out.failed.length ? ' (with a problem)' : ''}.</b> Restart FiveM to see it.${lines.length ? '<br>' + lines.join('<br>') : ''}<br><small>Not happy? Press <b>Undo</b> and everything goes back.</small>`);
     notify[out.failed.length ? 'warning' : 'success'](out.failed.length ? 'Installed, but a file could not be written' : 'Pack installed', out.failed.length ? 'Close FiveM and press Install again.' : 'Restart FiveM to see it.');
     paintInstallState();
-    ctx.refreshGraphics && ctx.refreshGraphics();
   } catch (e) {
     bubble('ai', `! I couldn't install it: ${esc(e.message)}. If FiveM is open, close it and press <b>Install again</b>.`);
     notify.error('Could not install pack', e.message);
@@ -805,7 +799,6 @@ async function undoInstall({ quiet = false } = {}) {
     if (!quiet) { bubble('ai', 'Undone: the pack is out of your game and everything is back how it was.'); notify.success('Undone', 'Your game is back how it was.'); }
   } catch (e) { if (!quiet) notify.error('Undo failed', e.message); }
   paintInstallState();
-  ctx.refreshGraphics && ctx.refreshGraphics();
 }
 
 function paintInstallState() {
@@ -856,13 +849,6 @@ function initAi() {
 // Tabs
 // =====================================================================
 
-const LEAD = {
-  packs: 'Your graphics packs live here. Add one, switch it on or off, and tint the colours of your whole game.',
-  ai: 'Describe the look you want and the AI builds a pack for you. Add a picture to make it your sky, or add a pack folder to build on.',
-  clouds: 'Change your cloud hats: recolour every cloud at once, paint on them, or swap in your own picture. Then press Install.',
-  blood: 'Change the blood: recolour it (neon, confetti, black…), paint on it or swap in your own picture. Choose your blood FX RPF, then press Install to put it into your mods folder.',
-  editor: 'For tinkerers: open any timecycle file and change every colour and value by hand, with a live preview of the day.',
-};
 
 function setPane(name) {
   if (name !== 'editor') stopPlay();
@@ -871,19 +857,16 @@ function setPane(name) {
   $$('#gfx-tabs button').forEach((b) => b.classList.toggle('on', b.dataset.pane === name));
   syncSeg($('#gfx-tabs'));
   $$('.gfx-pane').forEach((p) => p.classList.toggle('hidden', p.dataset.pane !== name));
-  $('#gfx-lead').textContent = LEAD[name];
   requestAnimationFrame(() => $$('.gfx-pane:not(.hidden) .seg').forEach(syncSeg));
   if (name === 'editor') enterEditor();
   if (name === 'clouds') cloudLab.enter();
   if (name === 'blood') bloodLab.enter();
   if (name === 'ai') { refreshAiEngine(); requestAnimationFrame(drawAi); }
-  if (name === 'packs') ctx.refreshGraphics && ctx.refreshGraphics();
 }
 
 export function initStudio(c) {
   ctx = { ...ctx, ...c };
   $$('#gfx-tabs button').forEach((b) => (b.onclick = () => setPane(b.dataset.pane)));
-  $('#gfx-lead').textContent = LEAD[pane];
   initEditor();
   initAi();
   cloudLab.init({ modal: ctx.modal });

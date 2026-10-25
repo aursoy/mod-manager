@@ -15,6 +15,7 @@
   </script>
 </head>
 <body>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true"><filter id="kt-outline" x="-5%" y="-10%" width="110%" height="120%"><feMorphology in="SourceAlpha" operator="dilate" radius="1.1" result="grown" /><feComposite in="grown" in2="SourceAlpha" operator="out" result="ring" /><feFlood flood-color="#fff" flood-opacity=".85" /><feComposite in2="ring" operator="in" /></filter></svg>
   <!-- splash -->
   <div id="splash">
     <div class="splash-inner">
@@ -51,7 +52,6 @@
         <a data-page="graphics"><i data-icon="palette"></i><span>Graphics</span></a>
         <a data-page="world"><i data-icon="globe"></i><span>World</span></a>
         <a data-page="mods"><i data-icon="package"></i><span>Mods</span></a>
-        <a data-page="presets"><i data-icon="bookmark"></i><span>Presets</span></a>
         <p class="nav-sec">Create</p>
         <a data-page="gun"><i data-icon="crosshair"></i><span>Gun Lab</span><small>3D</small></a>
         <a data-page="sound"><i data-icon="music"></i><span>Sound Lab</span><small>New</small></a>
@@ -86,10 +86,10 @@
 
         <div class="grid home-grid">
           <div class="card drop span-2" id="citizen-drop">
-            <div class="drop-art"><div class="ring"></div><div class="ring r2"></div><i data-icon="folder-in"></i></div>
+            <div class="drop-ic"><i data-icon="folder-in"></i></div>
             <div class="drop-text">
               <h3 id="citizen-title">Drop your citizen folder</h3>
-              <p id="citizen-path">Drag <code>FiveM.app/citizen</code> here, or browse. Every change is backed up automatically.</p>
+              <p id="citizen-path">Drag <code>FiveM.app/citizen</code> here.</p>
             </div>
             <div class="drop-actions">
               <button class="btn ghost sm" id="autodetect"><i data-icon="search"></i>Auto-detect</button>
@@ -105,12 +105,12 @@
           <div class="card span-2 quick">
             <h3>Quick actions</h3>
             <div class="quick-row">
-              <button class="tile" data-goto="graphics"><i data-icon="palette"></i><b>Colour grade</b><small>Tint your pack</small></button>
+              <button class="tile" data-goto="graphics"><i data-icon="sparkles"></i><b>Pack AI</b><small>Make a pack</small></button>
               <button class="tile" data-goto="world"><i data-icon="droplet"></i><b>Water</b><small>Remove / restore</small></button>
-              <button class="tile" data-goto="world"><i data-icon="mountain"></i><b>Mountains</b><small>Black mountain toggle</small></button>
-              <button class="tile" data-goto="gun"><i data-icon="crosshair"></i><b>Gun Lab</b><small>Skin weapons</small></button>
+              <button class="tile" data-goto="world"><i data-icon="mountain"></i><b>Mountains</b><small>Black mountains</small></button>
+              <button class="tile" data-goto="gun"><i data-icon="crosshair"></i><b>Gun Lab</b><small>Skins, text, chains</small></button>
               <button class="tile" data-goto="sound"><i data-icon="music"></i><b>Sound Lab</b><small>Gun &amp; kill sounds</small></button>
-              <button class="tile" data-goto="cache"><i data-icon="broom"></i><b>Clean cache</b><small>Fix texture loss</small></button>
+              <button class="tile" data-goto="cache"><i data-icon="broom"></i><b>Clean cache</b><small>Texture loss fix</small></button>
             </div>
           </div>
 
@@ -130,8 +130,7 @@
           </div>
           <div class="head-actions">
             <div class="seg gfx-tabs" id="gfx-tabs">
-              <button data-pane="packs" class="on"><i data-icon="package"></i>My packs</button>
-              <button data-pane="ai"><i data-icon="sparkles"></i>Create with AI</button>
+              <button data-pane="ai" class="on"><i data-icon="sparkles"></i>Create with AI</button>
               <button data-pane="clouds"><i data-icon="cloud"></i>Clouds</button>
               <button data-pane="blood"><i data-icon="droplet"></i>Blood FX</button>
               <button data-pane="editor"><i data-icon="sliders"></i>Advanced editor</button>
@@ -139,45 +138,9 @@
             </div>
           </div>
         </div>
-        <p class="gfx-lead" id="gfx-lead"></p>
-
-        <!-- My packs -->
-        <div class="gfx-pane" data-pane="packs">
-          <div class="grid gfx-grid">
-            <div class="card packs">
-              <div class="card-title"><h3>Your graphics packs</h3><small>Switch packs on and off. Every file they change is backed up first, so switching a pack off puts your game back.</small></div>
-              <button class="mini-drop" id="pack-drop"><i data-icon="upload"></i><div><b>Add a pack</b><small>Drop a pack folder or .zip anywhere on this page, or click to pick a folder.</small></div></button>
-              <ul class="list" id="pack-list"></ul>
-            </div>
-
-            <div class="card tint">
-              <div class="card-title"><h3>Colour tint</h3><small>Tints every timecycle in your game at once. Applying again replaces the last tint, Reset removes it.</small></div>
-              <div class="tint-view"><canvas id="tint-canvas"></canvas><span class="tce-tag" id="tint-tag">Preview · 12:00</span><div class="tce-empty hidden" id="tint-empty"><i data-icon="palette"></i><b>No timecycle to preview</b><small>Link your citizen folder and switch on a pack to preview the tint.</small></div></div>
-              <div class="tce-time"><i data-icon="sun"></i><input type="range" id="tint-hour" min="0" max="24" step="0.05" value="12" /><b class="mono" id="tint-hour-label">12:00</b></div>
-              <div class="swatches" id="swatches"></div>
-              <div class="ctrl-row">
-                <label class="field colour-field"><span>Pick a colour</span><input type="color" id="grade-color" value="#ffffff" /></label>
-                <div class="slider-field"><span>Strength <b id="strength-val">50%</b></span><input type="range" id="grade-strength" min="0" max="100" value="50" /></div>
-                <div class="slider-field"><span>Brightness <b id="bright-val">0</b></span><input type="range" id="grade-bright" min="-100" max="100" value="0" /></div>
-              </div>
-              <p class="label">What to tint</p>
-              <div class="chips" id="grade-groups">
-                <button class="chip on" data-group="sky">Sky</button>
-                <button class="chip on" data-group="light">Sun &amp; light</button>
-                <button class="chip on" data-group="fog">Fog</button>
-                <button class="chip on" data-group="ambient">Shadows &amp; ambient</button>
-                <button class="chip on" data-group="postfx">Post effects</button>
-              </div>
-              <div class="row-end">
-                <button class="btn ghost" id="grade-reset"><i data-icon="undo"></i>Reset tint</button>
-                <button class="btn primary" id="grade-apply"><i data-icon="check"></i>Apply tint</button>
-              </div>
-            </div>
-          </div>
-        </div>
 
         <!-- Create with AI -->
-        <div class="gfx-pane hidden" data-pane="ai">
+        <div class="gfx-pane" data-pane="ai">
           <div class="aip">
             <div class="card aip-chat">
               <div class="aip-head">
@@ -251,7 +214,7 @@
               </div>
 
               <div class="card ted-quick">
-                <div class="card-title"><h3>Quick colour change</h3><small>Tints every colour of this weather and area at once. Undo all puts it back.</small></div>
+                <div class="card-title"><h3>Quick colour change</h3></div>
                 <div class="ctrl-row tight">
                   <label class="field colour-field"><span>Tint</span><input type="color" id="tce-tint" value="#ffa060" /></label>
                   <div class="slider-field"><span>Strength <b id="tce-tint-val">0%</b></span><input type="range" id="tce-tint-amt" min="0" max="100" value="0" /></div>
@@ -427,16 +390,8 @@
           <div class="card stat"><p>Enabled</p><h4 id="mods-on">0</h4><span>loading in game</span></div>
           <div class="card stat"><p>Size</p><h4 id="mods-size">0 MB</h4><span>on disk</span></div>
         </div>
+        <div class="card packs-card"><div class="row-between list-head"><h3>Graphics packs</h3><button class="btn ghost sm" id="pack-add"><i data-icon="plus"></i>Add pack</button></div><ul class="list" id="pack-list"></ul></div>
         <div class="card"><div class="row-between list-head"><h3>FiveM.app/mods</h3><label class="search"><i data-icon="search"></i><input type="text" id="mods-search" placeholder="Search mods" /></label></div><ul class="list" id="mods-list"></ul></div>
-      </section>
-
-      <!-- PRESETS -->
-      <section class="page" data-page="presets">
-        <div class="page-head">
-          <div><p class="eyebrow">Presets</p><h2 class="headline">Swap setups <span class="outline">instantly.</span></h2></div>
-          <div class="head-actions"><button class="btn primary" id="preset-save"><i data-icon="bookmark"></i>Save current setup</button></div>
-        </div>
-        <div class="grid preset-grid" id="preset-grid"></div>
       </section>
 
       <!-- SOUND LAB -->
@@ -445,7 +400,7 @@
           <div class="gun-drop" id="snd-drop">
             <div class="eq"><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
             <h2 class="headline">Sound <span class="outline">Lab.</span></h2>
-            <p>Drop <code>WEAPONS_PLAYER.rpf</code> and <code>RESIDENT.rpf</code>. Listen to every gun, footstep and kill sound, then swap in your own.</p>
+            <p>Drop <code>WEAPONS_PLAYER.rpf</code> or <code>RESIDENT.rpf</code>.</p>
             <button class="btn primary" id="snd-browse"><i data-icon="upload"></i>Open sound archives</button>
             <p class="fine">Encrypted (NG) packs work too: the first time, Kt Mod Manager unlocks them using your own GTA V install. Exports are saved unencrypted (OPEN).</p>
           </div>
@@ -497,7 +452,7 @@
           <div><p class="eyebrow">Cache</p><h2 class="headline">Clean it <span class="outline">up.</span></h2></div>
           <div class="head-actions"><button class="btn ghost" id="cache-refresh"><i data-icon="rotate"></i>Rescan</button><button class="btn primary" id="cache-clean"><i data-icon="broom"></i>Clean selected</button></div>
         </div>
-        <div class="card cache-hero"><div><p class="label" style="margin-top:0">Selected</p><h4 class="big-num" id="cache-total">0 MB</h4><small>Close FiveM before cleaning. Everything here rebuilds automatically.</small></div><div class="cache-ring"><svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="52" class="track"/><circle cx="60" cy="60" r="52" class="fill" id="cache-arc"/></svg><b id="cache-pct">0%</b></div></div>
+        <div class="card cache-hero"><div><p class="label" style="margin-top:0">Selected</p><h4 class="big-num" id="cache-total">0 MB</h4><small>Close FiveM first.</small></div><div class="cache-ring"><svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="52" class="track"/><circle cx="60" cy="60" r="52" class="fill" id="cache-arc"/></svg><b id="cache-pct">0%</b></div></div>
         <div class="grid cache-grid" id="cache-grid"></div>
       </section>
 
@@ -534,7 +489,6 @@
           <div class="card setting"><div><b>Reduce motion</b><small>Tone down animations</small></div><button class="switch" data-setting="reduceMotion"><i></i></button></div>
           <div class="card setting"><div><b>Background field</b><small>Interactive dot grid</small></div><button class="switch" data-setting="bg"><i></i></button></div>
           <div class="card setting"><div><b>Encrypted RPFs</b><small id="keys-state">Checking…</small></div><button class="btn primary sm" id="keys-btn">Unlock</button></div>
-          <div class="card setting"><div><b>Test notifications</b><small>See every style</small></div><button class="btn ghost sm" id="test-notify"><i data-icon="bell"></i>Fire</button></div>
         </div>
       </section>
     </main>

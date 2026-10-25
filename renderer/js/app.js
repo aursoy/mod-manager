@@ -3,12 +3,10 @@ import { notify, initDrawer, settings as notifySettings } from './notify.js';
 import { initBackground, initInteractions, syncSeg, countUp, stagger, busy, fillRange, fxState } from './fx.js';
 import { initKeys } from './keys.js';
 import { initStudio, refreshStudio, handleDrop as studioDrop } from './tcstudio.js';
-import * as TC from './timecycle.js';
 import { initLook, setBackgroundFile } from './look.js';
 import { refreshWorld, initWorldPage } from './world.js';
 
-import { drawScene } from './tcpreview.js';
-import { initPages, refreshMods, refreshPresets, refreshCache, refreshProfile, addModFiles } from './pages.js';
+import { initPages, refreshMods, refreshCache, refreshProfile, addModFiles } from './pages.js';
 
 // Gun/Sound labs pull in three.js. Load them dynamically so a missing
 // node_modules/three (or any import failure) cannot prevent the rest of the
@@ -105,11 +103,10 @@ function movePill() {
 
 function refreshPage(page) {
   if (page === 'home') refreshHome();
-  if (page === 'graphics') { refreshGraphics(); refreshStudio(); }
+  if (page === 'graphics') refreshStudio();
   if (page === 'world') refreshWorld();
   if (page === 'backups') refreshBackups();
-  if (page === 'mods') refreshMods();
-  if (page === 'presets') refreshPresets();
+  if (page === 'mods') { refreshMods(); refreshPacks(); }
   if (page === 'cache') refreshCache();
   requestAnimationFrame(() => $$('.seg').forEach(syncSeg));
 }
@@ -171,76 +168,22 @@ function initHome() {
   $$('[data-goto]').forEach((b) => (b.onclick = () => go(b.dataset.goto)));
 }
 
-// ---------- graphics: packs and colour tint ----------
-const PRESETS = [
-  ['Pure', '#ffffff'], ['Arctic', '#8fd3ff'], ['Cyan', '#00e5ff'], ['Violet', '#9b5cff'], ['Rose', '#ff5fa8'],
-  ['Blood', '#ff2d2d'], ['Sunset', '#ff8a3d'], ['Gold', '#ffd24d'], ['Toxic', '#7dff3a'], ['Teal', '#22e3b2'],
-];
-// Tint chips -> timecycle groups, for the preview only (the real tint runs in the main process).
-const TINT_GROUPS = { sky: ['sky', 'sun', 'cloud'], light: ['light'], fog: ['fog'], ambient: ['ambient'], postfx: ['post'] };
-const tint = { base: null, hour: 12 };
-
-function gradeOpts() {
-  const hex = $('#grade-color').value;
-  return {
-    hex,
-    r: parseInt(hex.slice(1, 3), 16), g: parseInt(hex.slice(3, 5), 16), b: parseInt(hex.slice(5, 7), 16),
-    strength: $('#grade-strength').value / 100,
-    brightness: $('#grade-bright').value / 100,
-    groups: $$('#grade-groups .chip.on').map((c) => c.dataset.group),
-  };
-}
-
-function paintPreview() {
-  const o = gradeOpts();
-  $('#strength-val').textContent = Math.round(o.strength * 100) + '%';
-  $('#bright-val').textContent = (o.brightness > 0 ? '+' : '') + Math.round(o.brightness * 100);
-  $$('#swatches .sw').forEach((s) => s.classList.toggle('on', s.dataset.hex === o.hex));
-  $('#tint-hour-label').textContent = TC.hourLabel(tint.hour);
-  $('#tint-tag').textContent = 'Preview · ' + TC.hourLabel(tint.hour);
-  $('#tint-empty').classList.toggle('hidden', !!tint.base);
-  if (!tint.base || currentPage !== 'graphics') return;
-  const model = TC.parse(tint.base);
-  TC.gradeColours(model, { ...o, groups: o.groups.flatMap((g) => TINT_GROUPS[g] || []) });
-  const sec = model.sections.find((x) => /extrasunny|clear/i.test(x.label) && x.colours.length) || model.sections.find((x) => x.colours.length);
-  if (sec) drawScene($('#tint-canvas'), sec, tint.hour);
-}
-
-async function loadTintBase() {
-  tint.base = null;
-  try {
-    const scan = await api.call('colour:scan');
-    const items = scan.items || [];
-    const it = items.find((i) => /^w_extrasunny/i.test(i.name)) || items.find((i) => i.isWeather) || items[0];
-    if (it) tint.base = await api.call('colour:base', it.rel);
-  } catch (e) { /* no citizen yet */ }
-  paintPreview();
-}
-
-async function refreshGraphics() {
-  const colour = await api.call('colour:state').catch(() => null);
-  if (colour && !refreshGraphics.loaded) {
-    $('#grade-color').value = colour.hex || '#ffffff';
-    $('#grade-strength').value = Math.round(colour.strength * 100);
-    $('#grade-bright').value = Math.round((colour.brightness || 0) * 100);
-    $$('#grade-groups .chip').forEach((c) => c.classList.toggle('on', (colour.groups || []).includes(c.dataset.group)));
-    $$('#pages input[type=range]').forEach(fillRange);
-  }
-  refreshGraphics.loaded = true;
-  loadTintBase();
-  const tweaks = await api.call('tweaks:list');
+// ---------- graphics packs (listed on the Mods page) ----------
+async function refreshPacks() {
+  const tweaks = await api.call('tweaks:list').catch(() => []);
   const packs = tweaks.filter((t) => t.kind === 'pack');
   $('#pack-list').innerHTML = packs.length
-    ? packs.map((p) => `<li data-id="${p.id}"><span class="tag ${p.enabled ? 'solid' : ''}">${p.enabled ? 'On' : 'Off'}</span><div class="grow"><b>${esc(p.name)}</b><small>${p.files.length} file${p.files.length === 1 ? '' : 's'}${p.enabled ? ' · in your game now' : ''}</small></div>
-        <button class="switch ${p.enabled ? 'on' : ''}" data-act="toggle" title="${p.enabled ? 'Switch off' : 'Switch on'}"><i></i></button><button class="icon-btn" data-act="remove" title="Delete pack">${icon('trash')}</button></li>`).join('')
-    : '<li class="empty">No packs yet. Add one above, or make one in Create with AI.</li>';
+    ? packs.map((p) => `<li data-id="${p.id}"><span class="mod-ic">${icon('palette')}</span><div class="grow"><b>${esc(p.name)}</b><small>${p.files.length} file${p.files.length === 1 ? '' : 's'}</small></div>
+        <span class="tag ${p.enabled ? 'solid' : ''}">${p.enabled ? 'On' : 'Off'}</span>
+        <button class="switch ${p.enabled ? 'on' : ''}" data-act="toggle"><i></i></button><button class="icon-btn" data-act="remove" title="Delete pack">${icon('trash')}</button></li>`).join('')
+    : '<li class="empty">No graphics packs yet.</li>';
   $$('#pack-list li[data-id]').forEach((li) => {
     const id = li.dataset.id;
     const p = packs.find((x) => x.id === id);
-    $('[data-act=toggle]', li).onclick = () => toggleTweak(p, !p.enabled).then(refreshGraphics);
+    $('[data-act=toggle]', li).onclick = () => toggleTweak(p, !p.enabled).then(refreshPacks);
     $('[data-act=remove]', li).onclick = async () => {
-      if (!(await modal({ title: 'Delete "' + p.name + '"?', text: 'Its files are taken out of your game and your originals are put back.', confirm: 'Delete', danger: true }))) return;
-      try { await api.call('tweaks:removeCustom', id); notify.success('Pack deleted', p.name); refreshGraphics(); }
+      if (!(await modal({ title: 'Delete "' + p.name + '"?', text: 'Its files come out of your game.', confirm: 'Delete', danger: true }))) return;
+      try { await api.call('tweaks:removeCustom', id); notify.success('Pack deleted', p.name); refreshPacks(); }
       catch (e) { notify.error('Could not delete pack', e.message); }
     };
   });
@@ -248,7 +191,7 @@ async function refreshGraphics() {
 
 async function installPack(sources) {
   const guess = sources[0].split(/[\\/]/).pop().replace(/\.zip$/i, '');
-  const name = await modal({ title: 'Add graphics pack', text: 'Give it a name. It is switched on right away, and any file it replaces is backed up first.', confirm: 'Add pack', input: { label: 'Pack name', value: guess } });
+  const name = await modal({ title: 'Add graphics pack', confirm: 'Add pack', input: { label: 'Pack name', value: guess } });
   if (!name) return;
   try {
     const id = await notify.promise(api.call('tweaks:addCustom', name, sources, 'pack'), {
@@ -256,38 +199,12 @@ async function installPack(sources) {
     });
     const t = (await api.call('tweaks:list')).find((x) => x.id === id);
     await toggleTweak(t, true);
-    refreshGraphics();
+    refreshPacks();
   } catch (e) { /* toast shown */ }
 }
 
-function initGraphics() {
-  $('#swatches').innerHTML = PRESETS.map(([n, h]) => `<button class="sw" data-hex="${h}" data-tip="${n}" style="background:${h}"></button>`).join('');
-  $$('#swatches .sw').forEach((s) => (s.onclick = () => { $('#grade-color').value = s.dataset.hex; paintPreview(); }));
-  ['#grade-color', '#grade-strength', '#grade-bright'].forEach((s) => $(s).addEventListener('input', paintPreview));
-  $$('#grade-groups .chip').forEach((c) => (c.onclick = () => { c.classList.toggle('on'); paintPreview(); }));
-  $('#tint-hour').addEventListener('input', (e) => { tint.hour = +e.target.value; paintPreview(); });
-  addEventListener('resize', () => { if (currentPage === 'graphics') paintPreview(); });
-
-  $('#grade-apply').onclick = async (e) => {
-    const btn = e.currentTarget;
-    const o = gradeOpts();
-    if (!o.groups.length) return notify.warning('Pick what to tint', 'Turn on at least one of Sky, Sun & light, Fog...');
-    busy(btn, true);
-    try {
-      await notify.promise(api.call('colour:apply', o), {
-        loading: 'Tinting your timecycles…',
-        success: (r) => ({ title: 'Tint applied', message: `${r.tags} colour values in ${r.files} file(s). Restart FiveM to see it.` }),
-        error: 'Tint failed',
-      });
-      loadTintBase();
-    } catch (err) { /* toast shown */ }
-    busy(btn, false);
-  };
-  $('#grade-reset').onclick = async () => {
-    try { const n = await api.call('colour:reset'); notify.success('Tint removed', n + ' file(s) back to their pack colours.'); loadTintBase(); }
-    catch (e) { notify.error('Reset failed', e.message); }
-  };
-  $('#pack-drop').onclick = async () => {
+function initPacks() {
+  $('#pack-add').onclick = async () => {
     const dir = await api.call('pick:files', { directory: true, title: 'Select a graphics pack folder' });
     if (dir) installPack(dir);
   };
@@ -367,16 +284,7 @@ function initSettings() {
     try { localStorage.setItem('kt.prefs', JSON.stringify(prefs)); } catch (e) { /* ignore */ }
     applyPrefs();
   }));
-  $('#test-notify').onclick = () => {
-    notify.success('Pack installed', 'Night Pack is live in citizen.');
-    setTimeout(() => notify.info('Heads up', 'Restart FiveM to load new files.'), 350);
-    setTimeout(() => notify.warning('Overlapping files', '2 files were shared with another tweak.'), 700);
-    setTimeout(() => notify.error('Export failed', 'The archive is NG-encrypted.'), 1050);
-    setTimeout(() => {
-      notify.promise(new Promise((r) => setTimeout(r, 2200)), { loading: 'Encoding textures…', success: 'Gun exported', error: 'Failed' });
-    }, 1400);
-    setTimeout(() => notify({ type: 'info', title: 'Undo available', message: 'Water removed.', action: { label: 'Undo', fn: () => notify.success('Undone') } }), 1750);
-  };
+
 }
 
 // ---------- drag & drop ----------
@@ -406,7 +314,7 @@ function initDrop() {
     else if (currentPage === 'graphics') { if (!(await studioDrop(paths))) installPack(paths); }
     else if (currentPage === 'gun') openGunFile(paths[0]);
     else if (currentPage === 'sound') handleSoundDrop(paths);
-    else if (currentPage === 'mods') addModFiles(paths);
+    else if (currentPage === 'mods') { if (paths.some((p) => /\.rpf$/i.test(p))) addModFiles(paths); else installPack(paths); }
     else if (currentPage === 'settings' && /\.(png|jpe?g|webp|gif|bmp|mp4|webm)$/i.test(paths[0])) setBackgroundFile(paths[0]);
     else notify.info('Drop on a card', 'Drag files onto the tweak you want them for.');
   });
@@ -454,8 +362,8 @@ async function boot() {
   safe('initInteractions', initInteractions);
   safe('initDrawer', initDrawer);
   safe('initHome', initHome);
-  safe('initGraphics', initGraphics);
-  safe('initStudio', () => initStudio({ modal, go, refreshGraphics }));
+  safe('initPacks', initPacks);
+  safe('initStudio', () => initStudio({ modal, go }));
   safe('initWorld', initWorld);
   safe('initBackups', initBackups);
   safe('initSettings', initSettings);

@@ -72,7 +72,7 @@ function runShots(dir) {
     if (process.env.KT_CITIZEN) await js(`window.api.call('citizen:set', ${JSON.stringify(process.env.KT_CITIZEN)})`);
     await wait(800); await shot('0-splash');
     await wait(3200); await shot('1-home');
-    for (const p of (process.env.KT_PAGES || 'graphics,world,mods,presets,cache,backups,settings').split(',')) {
+    for (const p of (process.env.KT_PAGES || 'graphics,world,mods,cache,backups,settings').split(',')) {
       await nav(p); await wait(1100); await shot('2-' + p);
     }
     await js(`document.getElementById('profile-card').click()`);

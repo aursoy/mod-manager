@@ -33,13 +33,13 @@ function tweakCard(t) {
 function mountainsCard(m) {
   if (!m || !m.available) {
     return `<div class="card tweak unset" data-world="mountains"><div class="tweak-top"><div class="tweak-icon">${icon('mountain')}</div>
-      <div><span class="big-state">Not found</span><h3>Black mountains</h3><p>Black mountains are changed in visualsettings.dat, and none was found in your citizen folder, your packs or GTA V. Link your citizen folder (Dashboard) and try again.</p></div></div></div>`;
+      <div><span class="big-state">Not found</span><h3>Black mountains</h3><p>Link your citizen folder first.</p></div></div></div>`;
   }
   const far = m.value != null;
   return `<div class="card tweak ${m.removed ? 'on' : ''}" data-world="mountains">
     <div class="tweak-top"><div class="tweak-icon"><div class="wave"></div>${icon('mountain')}</div>
       <div><span class="big-state">${m.removed ? 'Removed' : 'Visible'}</span><h3>Black mountains</h3>
-      <p>Changes how far the game draws in <code>visualsettings.dat</code> (misc.Multiplier.farClipMultiplier). Lower = the dark far-away mountains stop drawing. Works on top of your pack's file; switching back puts it back exactly.</p></div></div>
+      <p>Hides the dark mountains far away.</p></div></div>
     ${far ? `<div class="slider-field"><span>Draw distance <b id="mtn-val">${fmt(m.value)}×</b></span><input type="range" id="mtn-dist" min="0.1" max="2" step="0.05" value="${m.value}" /></div>` : ''}
     ${m.packKeys.length ? `<div class="mtn-keys"><p class="label">Your pack's "${esc(m.packKeys[0].section)}" lines</p>${m.packKeys.map((k) => `<label class="mtn-key"><span class="mono">${esc(k.key)}</span><input type="number" step="any" data-key="${esc(k.key)}" value="${fmt(k.value)}" /></label>`).join('')}</div>` : ''}
     <div class="state">${seg(m.removed, !m.removed, 'Removed', 'Visible')}<span class="fine">${far ? 'Original: ' + fmt(m.original) + '×' : ''}</span></div>
@@ -49,13 +49,13 @@ function mountainsCard(m) {
 function pedCard(p) {
   if (!p || !p.available) {
     return `<div class="card tweak unset" data-world="ped"><div class="tweak-top"><div class="tweak-icon">${icon('user')}</div>
-      <div><span class="big-state">Not found</span><h3>Player detail distance</h3><p>This is set in visualsettings.dat, and none was found in your citizen folder, your packs or GTA V. Link your citizen folder (Dashboard) and try again.</p></div></div></div>`;
+      <div><span class="big-state">Not found</span><h3>Player detail distance</h3><p>Link your citizen folder first.</p></div></div></div>`;
   }
   const m = (v) => (v == null ? '?' : fmt(v) + ' m');
   return `<div class="card tweak ${p.on ? 'on' : ''}" data-world="ped">
     <div class="tweak-top"><div class="tweak-icon"><div class="wave"></div>${icon('user')}</div>
       <div><span class="big-state">${p.on ? 'Fixed' : 'Default'}</span><h3>Player detail distance</h3>
-      <p>Players a few metres away turning into blocky low-detail models? That is the ped LOD distance in <code>visualsettings.dat</code> (many FPS packs cut it). Fix keeps everyone's full model out to ${m(p.fixed)}. Default puts your file back.</p></div></div>
+      <p>Stops players a few metres away turning into low-detail models.</p></div></div>
     <div class="state">${seg(p.on, !p.on, 'Fixed', 'Default')}<span class="fine">Full detail up to: ${m(p.now)}</span></div>
   </div>`;
 }
@@ -63,12 +63,12 @@ function pedCard(p) {
 function snowCard(sn) {
   if (!sn || !sn.available) {
     return `<div class="card tweak unset" data-world="snow"><div class="tweak-top"><div class="tweak-icon">${icon('snow')}</div>
-      <div><span class="big-state">Not found</span><h3>Snow</h3><p>Snow is switched on in weather.xml, and none was found in your citizen folder, your packs or GTA V. Link your citizen folder (Dashboard) and try again.</p></div></div></div>`;
+      <div><span class="big-state">Not found</span><h3>Snow</h3><p>Link your citizen folder first.</p></div></div></div>`;
   }
   return `<div class="card tweak ${sn.on ? 'on' : ''}" data-world="snow">
     <div class="tweak-top"><div class="tweak-icon"><div class="wave"></div>${icon('snow')}</div>
       <div><span class="big-state">${sn.on ? 'On' : 'Off'}</span><h3>Snow</h3>
-      <p>Snow on the ground and in the air for every weather, set in <code>weather.xml</code> (the Snow and SnowMist value of all ${sn.weathers} weather types). Off puts the file back.</p></div></div>
+      <p>Snow on the ground and in the air, in every weather.</p></div></div>
     <div class="slider-field"><span>Amount <b id="snow-val">${Math.round((sn.on ? sn.amount : 1) * 100)}%</b></span><input type="range" id="snow-amt" min="5" max="100" value="${Math.round((sn.on ? sn.amount : 1) * 100)}" /></div>
     <div class="state">${seg(sn.on, !sn.on, 'On', 'Off')}<span></span></div>
   </div>`;
@@ -77,7 +77,7 @@ function snowCard(sn) {
 function vsCard(v) {
   if (!v || !v.available) return '';
   return `<div class="card vs-card span-2" id="vs-card">
-    <div class="row-between"><div><h3>Visual settings</h3><small class="fine">Every line of <code>visualsettings.dat</code> (from ${esc(v.source)}). Change any value, then Save. Reset puts the file back.</small></div>
+    <div class="row-between"><div><h3>Visual settings</h3><small class="fine">Every line of <code>visualsettings.dat</code>.</small></div>
       <div class="head-actions"><label class="search"><i>${icon('search')}</i><input type="text" id="vs-search" placeholder="Search, e.g. lod, farclip, fog" value="${esc(vs.q)}" /></label>
       <button class="btn ghost sm" id="vs-reset" ${v.edited ? '' : 'disabled'}>${icon('undo')}Reset</button><button class="btn primary sm" id="vs-save" disabled>${icon('save')}Save</button></div></div>
     <ul class="vs-list" id="vs-list"></ul></div>`;
