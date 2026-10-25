@@ -657,7 +657,7 @@ test('sky is found in a pack RPF whatever it is called, and RPFs without a sky a
 const { WorldFiles, VS, WEATHER, PED_LOD } = require('../src/core/worldfiles');
 
 const VS_TEXT = '# Misc Values\nmisc.Multiplier.heightStart\t100\nmisc.Multiplier.farClipMultiplier\t1\n\n# black mountains fix\nlod.fadedist.slod3\t\t25.0\r\n\n# vehicles\ncar.lod.distance.high\t90.00\n';
-const WEATHER_XML = '<CWeatherTypes><WeatherTypes><Item><Name>EXTRASUNNY</Name><Snow value="0.000000"/><SnowMist value="0.000000"/></Item><Item><Name>XMAS</Name><Snow value="1.000000"/><SnowMist value="1.000000"/></Item></WeatherTypes></CWeatherTypes>';
+const WEATHER_XML = '<CWeatherTypes><WeatherTypes><Item><Name>EXTRASUNNY</Name><Snow value="0.000000"/><SnowMist value="0.000000"/><DropSettingName /><MistSettingName>MIST_NONE</MistSettingName><GroundSettingName>DRY</GroundSettingName><TimeCycleFilename>EXTRASUNNY</TimeCycleFilename></Item><Item><Name>XMAS</Name><Snow value="1.000000"/><SnowMist value="1.000000"/><DropSettingName>SNOW_XMAS</DropSettingName><MistSettingName>MIST_SNOW</MistSettingName><GroundSettingName>SNOW_GROUND</GroundSettingName><TimeCycleFilename>XMAS</TimeCycleFilename></Item></WeatherTypes></CWeatherTypes>';
 
 test('black mountains: lowers the draw distance on top of a pack\'s visualsettings.dat, and off puts the pack\'s file back exactly', () => {
   const { m, cit } = makeCitizen();
@@ -675,7 +675,8 @@ test('black mountains: lowers the draw distance on top of a pack\'s visualsettin
   assert.strictEqual(st.removed, true);
   assert.strictEqual(st.value, 0.5);
   const now = fs.readFileSync(path.join(cit, VS), 'utf8');
-  assert.strictEqual(now, VS_TEXT.replace('farClipMultiplier\t1', 'farClipMultiplier\t0.5'), 'only that one value changed');
+  assert.ok(now.startsWith(VS_TEXT.replace('heightStart\t100', 'heightStart\t-1000').replace('farClipMultiplier\t1', 'farClipMultiplier\t0.5').replace(/\n$/, '')), 'far clip halved and used at every height');
+  assert.ok(/misc\.Multiplier\.heightEnd\t-999/.test(now), 'the missing heightEnd line is added');
   wf.setMountains({ removed: true, keys: { 'lod.fadedist.slod3': 0 } });
   assert.ok(fs.readFileSync(path.join(cit, VS), 'utf8').includes('slod3\t\t0\r\n'));
   wf.setMountains({ removed: false });
@@ -692,6 +693,10 @@ test('snow: switches on snow for every weather from GTA V\'s own weather.xml, of
   const x = fs.readFileSync(path.join(cit, WEATHER), 'utf8');
   assert.strictEqual((x.match(/<Snow value="0.800000"\/>/g) || []).length, 2);
   assert.strictEqual((x.match(/<SnowMist value="0.480000"\/>/g) || []).length, 2);
+  assert.strictEqual((x.match(/<DropSettingName>SNOW_XMAS<\/DropSettingName>/g) || []).length, 2, 'snowfall particles in every weather');
+  assert.strictEqual((x.match(/<MistSettingName>MIST_SNOW</g) || []).length, 2);
+  assert.strictEqual((x.match(/<GroundSettingName>SNOW_GROUND</g) || []).length, 2);
+  assert.ok(x.includes('<TimeCycleFilename>EXTRASUNNY</TimeCycleFilename>'), 'each weather keeps its own look');
   wf.setSnow(0);
   assert.ok(!fs.existsSync(path.join(cit, WEATHER)), 'the game\'s own file is used again');
 });
@@ -722,7 +727,7 @@ test('player detail fix: raises the ped LOD distances, works together with black
   assert.strictEqual(st.now, PED_LOD['ped.lod.distance.high']);
   let text = fs.readFileSync(path.join(cit, VS), 'utf8');
   assert.ok(text.includes('ped.lod.distance.low\t400\n') && text.includes('farClipMultiplier\t0.5'), 'both options are in the file');
-  assert.ok(text.includes('# Kt Mod Manager\npedincar.lod.distance.high.x64\t80'), 'a line the file did not have is added');
+  assert.ok(/# Kt Mod Manager\n[^#]*pedincar\.lod\.distance\.high\.x64\t80/.test(text), 'a line the file did not have is added');
   wf.setMountains({ removed: false });
   text = fs.readFileSync(path.join(cit, VS), 'utf8');
   assert.ok(text.includes('farClipMultiplier\t1\n') && text.includes('ped.lod.distance.high\t150'), 'mountains back, player fix kept');

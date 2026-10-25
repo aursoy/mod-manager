@@ -17,6 +17,7 @@ const { parseVS, setValues, packMountainKeys, FAR_CLIP } = require('./visualsett
 
 const VS = 'common/data/visualsettings.dat';
 const WEATHER = 'common/data/levels/gta5/weather.xml';
+const SNOW_EFFECTS = ['DropSettingName', 'MistSettingName', 'GroundSettingName'];
 const CLOUDS = 'common/data/clouds.xml';
 // where the same files live inside the game, newest first
 const GAME_PATHS = {
@@ -25,6 +26,7 @@ const GAME_PATHS = {
   [CLOUDS]: [['update/update.rpf', 'common/data/clouds.xml'], ['common.rpf', 'data/clouds.xml']],
 };
 const REMOVED_FAR_CLIP = 0.5;
+const HEIGHT_EVERYWHERE = { 'misc.Multiplier.heightStart': -1000, 'misc.Multiplier.heightEnd': -999 };
 const VS_OWNER = 'visualsettings';
 const VS_LAYERS = ['mountains', 'pedlod', 'editor']; // later ones win on the same line
 // Up to how many metres away a player keeps the full model. GTA's own values are
@@ -154,7 +156,12 @@ class WorldFiles {
     if (base == null) throw new Error('No visualsettings.dat found in your game or packs.');
     const far = parseVS(base).find((e) => e.key === FAR_CLIP);
     const changes = { ...(opts.keys || {}) };
-    if (far) changes[FAR_CLIP] = opts.distance != null ? opts.distance : opts.removed ? far.value * REMOVED_FAR_CLIP : far.value;
+    if (far) {
+      changes[FAR_CLIP] = opts.distance != null ? opts.distance : opts.removed ? far.value * REMOVED_FAR_CLIP : far.value;
+      // GTA only uses farClipMultiplier between heightStart and heightEnd (100-250 m up, for
+      // flying), so on the ground it does nothing. Below ground on both, it applies everywhere.
+      if (changes[FAR_CLIP] !== far.value) Object.assign(changes, HEIGHT_EVERYWHERE);
+    }
     this.writeVS('mountains', changes);
     return this.mountains();
   }
@@ -236,7 +243,17 @@ class WorldFiles {
     if (base == null) throw new Error('No weather.xml found in your game or packs.');
     if (!/<Snow\s+value=/.test(base)) throw new Error('This weather.xml has no snow settings.');
     const v = amount.toFixed(6);
-    const text = base.replace(/(<Snow\s+value=")[^"]*(")/g, '$1' + v + '$2').replace(/(<SnowMist\s+value=")[^"]*(")/g, '$1' + (amount * 0.6).toFixed(6) + '$2');
+    // The amount alone shows nothing: each weather also names its falling-particle, mist and
+    // ground effects, and only the snowy ones name snow. Every weather borrows those from XMAS.
+    const items = base.match(/<Item>[\s\S]*?<\/Item>/g) || [];
+    const snowy = ['XMAS', 'BLIZZARD', 'SNOW', 'SNOWLIGHT'].map((n) => items.find((it) => new RegExp('<Name>\\s*' + n + '\\s*</Name>', 'i').test(it))).find(Boolean);
+    const effects = {};
+    if (snowy) for (const tag of SNOW_EFFECTS) { const m = new RegExp('<' + tag + '>([^<]*)</' + tag + '>').exec(snowy); if (m) effects[tag] = m[1]; }
+    const text = base.replace(/<Item>[\s\S]*?<\/Item>/g, (it) => {
+      let out = it.replace(/(<Snow\s+value=")[^"]*(")/g, '$1' + v + '$2').replace(/(<SnowMist\s+value=")[^"]*(")/g, '$1' + (amount * 0.6).toFixed(6) + '$2');
+      for (const [tag, val] of Object.entries(effects)) out = out.replace(new RegExp('(<' + tag + '>)[^<]*(</' + tag + '>)'), '$1' + val + '$2').replace(new RegExp('<' + tag + '\\s*/>'), '<' + tag + '>' + val + '</' + tag + '>');
+      return out;
+    });
     this.patch('snow', WEATHER, text);
     return this.snow();
   }
