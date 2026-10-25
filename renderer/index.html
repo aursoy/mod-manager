@@ -55,7 +55,8 @@
         <a data-page="mods"><i data-icon="package"></i><span>Mods</span></a>
         <p class="nav-sec">Create</p>
         <a data-page="gun"><i data-icon="crosshair"></i><span>Gun Lab</span><small>3D</small></a>
-        <a data-page="sound"><i data-icon="music"></i><span>Sound Lab</span><small>New</small></a>
+        <a data-page="sound"><i data-icon="music"></i><span>Sound Lab</span></a>
+        <a data-page="maker"><i data-icon="sparkles"></i><span>Mod Maker</span><small>AI</small></a>
         <p class="nav-sec">System</p>
         <a data-page="cache"><i data-icon="broom"></i><span>Cache</span></a>
         <a data-page="backups"><i data-icon="shield"></i><span>Backups</span></a>
@@ -318,6 +319,9 @@
                 <i class="seg-thumb"></i>
               </div>
               <div class="row-end"><button class="btn ghost sm" id="fx-reset"><i data-icon="undo"></i>Reset texture</button></div>
+              <p class="label">Finish <small class="fine">whole gun</small></p>
+              <div class="slider-field"><span>Shine <b id="shine-val">Off</b></span><input type="range" id="gun-shine" min="0" max="100" value="0" /></div>
+              <div class="finish-btns"><button class="btn ghost sm" data-shine="0">Default</button><button class="btn ghost sm" data-shine="45">Gloss</button><button class="btn ghost sm" data-shine="100">Chrome</button></div>
             </div>
 
             <div class="tab-body hidden" data-tab="text">
@@ -450,6 +454,40 @@
       </section>
 
       <!-- CACHE -->
+      <section class="page" data-page="maker">
+        <div class="page-head">
+          <div><p class="eyebrow">Mod Maker</p><h2 class="headline">Ask for a <span class="outline">mod.</span></h2></div>
+        </div>
+        <div class="card mk-off hidden" id="mk-off">
+          <div><b>Add an AI key first</b><small>The Mod Maker uses your AI. Paste an API key from any AI in Settings.</small></div>
+          <button class="btn primary sm" id="mk-settings"><i data-icon="settings"></i>Open Settings</button>
+        </div>
+        <div class="aip">
+          <div class="card aip-chat">
+            <div class="aip-head"><div><h3>Describe your mod</h3><small>Your game's own files are the starting point.</small></div><button class="btn ghost sm" id="mk-new"><i data-icon="plus"></i>New mod</button></div>
+            <div class="aip-log" id="mk-log"></div>
+            <div class="aip-chips" id="mk-chips">
+              <button class="chip">Optimise my game for FPS</button>
+              <button class="chip">No lightning, no rain</button>
+              <button class="chip">Clear view: no fog, no blur</button>
+              <button class="chip">Longer draw distance for cars and players</button>
+              <button class="chip">Still clouds and calm sea</button>
+            </div>
+            <div class="aip-input"><textarea id="mk-input" rows="2" placeholder="e.g. make me an rpf that boosts my FPS and removes rain"></textarea><button class="btn primary" id="mk-send"><i data-icon="send"></i></button></div>
+          </div>
+          <div class="card aip-result">
+            <div class="row-between"><div><p class="label" style="margin-top:0">Your mod</p><h3 id="mk-name">Nothing yet</h3></div><span class="tag" id="mk-count">0 changes</span></div>
+            <ul class="aip-report" id="mk-report"><li class="warn">Ask for a mod on the left.</li></ul>
+            <small class="fine" id="mk-files"></small>
+            <div class="row-end">
+              <button class="btn ghost sm" id="mk-rpf" disabled><i data-icon="download"></i>Save as .rpf</button>
+              <button class="btn primary sm" id="mk-install" disabled><i data-icon="zap"></i>Install</button>
+            </div>
+            <small class="fine">Install puts it in your game (switch it off any time on the Mods page). Save as .rpf gives you the same files at their game paths, to share or use in OpenIV.</small>
+          </div>
+        </div>
+      </section>
+
       <section class="page" data-page="cache">
         <div class="page-head">
           <div><p class="eyebrow">Cache</p><h2 class="headline">Clean it <span class="outline">up.</span></h2></div>

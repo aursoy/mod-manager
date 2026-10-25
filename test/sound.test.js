@@ -144,3 +144,32 @@ test('sound banks say which gun they are for', () => {
   assert.strictEqual(streamName(0x0f4dfcd5), 'Pistol');
   assert.strictEqual(streamName(0x12345678), null);
 });
+
+test('thunder: thunder banks in GTA V audio get silenced into citizen, a sound pack copy is built on, off restores', () => {
+  const { WorldFiles } = require('../src/core/worldfiles');
+  const root = fs.mkdtempSync(path.join(tmp, 'thunder-'));
+  const gta = path.join(root, 'GTAV');
+  fs.mkdirSync(path.join(gta, 'x64', 'audio', 'sfx'), { recursive: true });
+  const bin = (name, b) => ({ type: 'bin', name, stored: b, compressed: false, size: b.length });
+  const bank = buildBank().buf;
+  fs.writeFileSync(path.join(gta, 'x64', 'audio', 'sfx', 'RESIDENT.rpf'), rpf.writeRpf({ type: 'dir', name: '', children: [bin('thunder_distant.awc', bank), bin('doors.awc', bank)] }));
+  fs.writeFileSync(path.join(gta, 'x64', 'audio', 'sfx', 'WEAPONS_PLAYER.rpf'), rpf.writeRpf({ type: 'dir', name: '', children: [bin('pistol.awc', bank)] }));
+  const cit = path.join(root, 'citizen');
+  fs.mkdirSync(path.join(cit, 'common'), { recursive: true });
+  const m = new CitizenManager(path.join(root, 'data'));
+  m.setCitizen(cit);
+  const wf = new WorldFiles(m, path.join(root, 'wf'), () => null, { gtaDir: () => gta });
+  assert.deepStrictEqual(wf.thunder(), { available: true, off: false, muted: 0 });
+  const st = wf.setThunder(true);
+  assert.strictEqual(st.off, true); assert.strictEqual(st.muted, 2);
+  const out = path.join(cit, 'platform', 'audio', 'sfx', 'RESIDENT.rpf');
+  const tree = rpf.readRpf(fs.readFileSync(out), 'RESIDENT.rpf');
+  const get = (n) => { let e = null; rpf.walk(tree, (x) => { if (x.name === n) e = x; }); return awc.parseAwc(rpf.getBinaryData(e)); };
+  const silent = get('thunder_distant.awc');
+  for (const s of awc.describeAwc(silent)) assert.ok(Array.from(awc.streamPcm(silent, s.id).pcm).every((v) => v === 0), 'silent');
+  assert.ok(Array.from(awc.streamPcm(get('doors.awc'), 0x0abc1234).pcm).some((v) => v !== 0), 'other banks untouched');
+  assert.ok(!fs.existsSync(path.join(cit, 'platform', 'audio', 'sfx', 'WEAPONS_PLAYER.rpf')), 'archives without thunder are left alone');
+  wf.setThunder(false);
+  assert.ok(!fs.existsSync(out), 'off: the game\'s own audio is used again');
+  assert.strictEqual(wf.thunder().off, false);
+});

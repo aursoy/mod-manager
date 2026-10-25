@@ -11,7 +11,7 @@ const GTAV1 = 0x7755555555996996n;
 const DECL_FLAGS = 0x4059; // position, normal, colour0, texcoord0, tangent
 const STRIDE = 12 + 12 + 4 + 8 + 16;
 
-function buildYdr({ dataInGfx = true } = {}) {
+function buildYdr({ dataInGfx = true, shine = false } = {}) {
   const sys = Buffer.alloc(0x2000);
   const gfx = Buffer.alloc(0x2000);
   let sp = 0, gp = 0;
@@ -41,11 +41,18 @@ function buildYdr({ dataInGfx = true } = {}) {
   // one shader with the texture as its first parameter
   const shaders = alloc(8);
   const shader = alloc(0x30);
-  const params = alloc(16);
+  // shine: two float settings after the texture (data, then one name hash per parameter)
+  const params = alloc(shine ? 16 * 3 + 32 + 12 : 16);
   sptr(sg + 0x10, shaders); sys.writeUInt16LE(1, sg + 0x18);
   sptr(shaders, shader);
-  sptr(shader, params); sys[shader + 0x10] = 1;
+  sptr(shader, params); sys[shader + 0x10] = shine ? 3 : 1;
   sys[params] = 0; sptr(params + 8, tex);
+  if (shine) {
+    const { joaat } = require('../src/core/shaderparams');
+    sys[params + 16] = 1; sptr(params + 24, params + 48); sys.writeFloatLE(0.5, params + 48);
+    sys[params + 32] = 1; sptr(params + 40, params + 64); sys.writeFloatLE(40, params + 64);
+    ['DiffuseSampler', 'specularIntensityMult', 'specularFalloffMult'].forEach((n, i) => sys.writeUInt32LE(joaat(n), params + 80 + i * 4));
+  }
   sptr(drawable + 0x10, sg);
 
   // vertex declaration

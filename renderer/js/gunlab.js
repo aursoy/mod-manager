@@ -26,6 +26,10 @@ const PAINTS = ['#0a0a0a', '#ffffff', '#c9c9c9', '#ff2d2d', '#ff8a3d', '#ffd24d'
 const DEFAULT_FX = { hue: 0, sat: 100, bright: 100, contrast: 100, tint: '#ffffff', tintAmt: 0, mode: 'color' };
 const PREVIEW_MAX = 1024;
 const AUX = /(_n|_s|_m|_nm|_spec|_normal|_mask)$/i;
+const SPEC = /(_s|_spec)$/i;
+// Shine 0..1 for the whole gun: export raises the models' specular settings (see
+// shaderparams.js) and brightens the specular maps; the preview turns up metal and gloss.
+let shine = 0;
 
 let pack = null;
 let textures = [];
@@ -222,7 +226,39 @@ function materialFor(texIdx) {
   const t = textures[texIdx];
   if (!t) return three.grey || (three.grey = new THREE.MeshStandardMaterial({ color: 0x777777, metalness: 0.5, roughness: 0.45 }));
   if (!t.mat) t.mat = new THREE.MeshStandardMaterial({ map: t.tex || null, color: t.tex ? 0xffffff : 0x666666, metalness: 0.35, roughness: 0.55, side: THREE.DoubleSide });
+  shineMaterial(t.mat);
   return t.mat;
+}
+
+function shineMaterial(m) {
+  m.metalness = 0.35 + shine * 0.6;
+  m.roughness = 0.55 - shine * 0.5;
+  m.envMapIntensity = 1 + shine * 1.5;
+}
+
+function setShine(v) {
+  shine = Math.max(0, Math.min(1, v));
+  const r = $('#gun-shine');
+  if (r) { r.value = Math.round(shine * 100); fillRange(r); }
+  const out = $('#shine-val');
+  if (out) out.textContent = shine ? Math.round(shine * 100) + '%' : 'Off';
+  $$('[data-shine]').forEach((b) => b.classList.toggle('on', +b.dataset.shine === Math.round(shine * 100)));
+  for (const t of textures) if (t.mat) shineMaterial(t.mat);
+  if (three.grey) shineMaterial(three.grey);
+  requestFrame();
+}
+
+/** A specular map, brightened toward white by the shine amount. */
+function shineSpec(t, c) {
+  if (!shine || !SPEC.test(t.name)) return c;
+  const g = c.getContext('2d');
+  g.save();
+  g.globalCompositeOperation = 'lighten';
+  g.globalAlpha = shine * 0.85;
+  g.fillStyle = '#ffffff';
+  g.fillRect(0, 0, c.width, c.height);
+  g.restore();
+  return c;
 }
 
 function updateMaterials() {
@@ -824,7 +860,7 @@ function closeFile() {
 // ---------- export ----------
 function buildLevels(t) {
   const parts = [];
-  let prev = composeFull(t);
+  let prev = shineSpec(t, composeFull(t));
   let prevAlpha = t.alpha;
   let pw = t.w, ph = t.h;
   for (let i = 0; i < t.levels; i++) {
@@ -858,10 +894,10 @@ function buildLevels(t) {
 }
 
 async function doExport(opts, btn) {
-  const dirty = textures.filter((t) => t.dirty && t.editable);
+  const dirty = textures.filter((t) => (t.dirty || (shine && SPEC.test(t.name))) && t.editable);
   const geometry = partExports();
   if (parts.some((x) => x.at) && !geometry.length) return notify.error('Could not add the 3D parts', 'No model part in this file matches where they were placed.');
-  if (!dirty.length && !geometry.length) return notify.info('Nothing to export yet', 'Change a colour or add text or a chain first.');
+  if (!dirty.length && !geometry.length && !shine) return notify.info('Nothing to export yet', 'Change a colour or add text or a chain first.');
   busy(btn, true);
   const h = notify({ type: 'loading', title: 'Encoding textures…', message: `0 / ${dirty.length}` });
   try {
@@ -875,7 +911,7 @@ async function doExport(opts, btn) {
       h.update({ type: 'loading', title: 'Encoding textures…', message: `${i + 1} / ${dirty.length} · ${t.name}` });
     }
     h.update({ type: 'loading', title: 'Packing archive…', message: 'Compressing and writing' });
-    const r = await api.call('gun:export', edits, opts, geometry);
+    const r = await api.call('gun:export', edits, { ...opts, shine }, geometry);
     if (!r) { h.close(); busy(btn, false); return; }
     h.update({
       type: 'success',
@@ -932,6 +968,9 @@ export function initGunLab() {
     syncSeg(seg);
     scheduleRender(true);
   }));
+  $('#gun-shine').addEventListener('input', (e) => setShine(e.target.value / 100));
+  $$('[data-shine]').forEach((b) => (b.onclick = () => setShine(+b.dataset.shine / 100)));
+  setShine(0);
   $('#fx-reset').onclick = () => {
     const t = editable(); if (!t) return;
     t.fx = { ...DEFAULT_FX };

@@ -4,7 +4,7 @@
   "version": "1.2.0",
   "description": "Sleek FiveM citizen mod manager with a gun skin lab, sound pack maker, timecycle editor and graphics-pack AI.",
   "main": "main.js",
-  "discordAppId": "",
+  "discordAppId": "1518241062102237414",
   "scripts": {
     "start": "electron .",
     "test": "node --test \"test/*.test.js\""

@@ -9,6 +9,7 @@ const STEPS = [
   { target: '#nav a[data-page="world"]', title: 'World', text: 'Water, black mountains, snow and player detail. One click each.' },
   { target: '#nav a[data-page="mods"]', title: 'Mods', text: 'Turn mods and graphics packs on and off.' },
   { target: '#nav a[data-page="gun"]', title: 'Gun Lab', text: 'Recolour guns, add 3D text and chains.' },
+  { target: '#nav a[data-page="maker"]', title: 'Mod Maker', text: 'Ask your AI for a mod and get it as an .rpf.' },
   { target: '#profile-card', title: 'You', text: 'Your Discord shows here by itself.' },
 ];
 const KEY = 'kt.tour.done';

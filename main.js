@@ -14,8 +14,9 @@ const { findGtaDirs, DEFAULT_REL: SKY_REL } = require('./src/core/skytex');
 const { openSkySource, skySources } = require('./src/core/skysource');
 const { listSources, openSource, openFiles } = require('./src/core/texsource');
 const { WorldFiles } = require('./src/core/worldfiles');
-const { askPackAi, listModels, provider: aiProvider } = require('./src/core/packai');
+const { askPackAi, askJson, listModels, provider: aiProvider } = require('./src/core/packai');
 const { EditorPack, modsPacks } = require('./src/core/editorpack');
+const { MOD_SCHEMA, MOD_SYSTEM, modContext, userMessage, buildMod, modRpf } = require('./src/core/modmaker');
 const { readFileFrom, findInFile } = require('./src/core/rpfscan');
 const { GtaKeys, findAesKey, findGtaExes } = require('./src/core/ngcrypto');
 
@@ -330,11 +331,16 @@ app.whenReady().then(() => {
     const dir = gtaDirs()[0];
     const file = dir && path.join(dir, ...arc.split('/'));
     return file && fs.existsSync(file) ? readFileFrom(file, inner) : null;
-  });
+  }, { gtaDir: () => gtaDirs()[0] || null });
   // GTA V's archives are encrypted: unlock once (read-only, cached) and try again.
   const worldCall = async (fn) => {
     world.needKeys = false;
-    let r = fn();
+    let r;
+    try { r = fn(); } catch (e) {
+      if (e.code !== rpf.NEED_KEYS || rpf.getKeys()) throw e;
+      await skyCtx().unlock();
+      return fn();
+    }
     if (world.needKeys && !rpf.getKeys()) { await skyCtx().unlock(); world.needKeys = false; r = fn(); }
     return r;
   };
@@ -342,6 +348,37 @@ app.whenReady().then(() => {
   handle('world:setMountains', (opts) => worldCall(() => world.setMountains(opts)));
   handle('world:pedLod', () => worldCall(() => world.pedLod()));
   handle('world:setPedLod', (on) => worldCall(() => world.setPedLod(on)));
+  // ----- AI Mod Maker -----
+  let madeMod = null; // { name, files, done, skipped }
+  let modCtx = null;
+  handle('mod:ask', async (text, current) => {
+    const read = (rel) => world.current(rel);
+    if (!modCtx || !modCtx.visualsettings.length) modCtx = await worldCall(() => modContext(read));
+    const plan = await askJson(aiCfg(), { system: MOD_SYSTEM, schema: MOD_SCHEMA, user: userMessage(text, modCtx, current) });
+    if (!plan || typeof plan.reply !== 'string') throw new Error('The AI answer was missing parts.');
+    madeMod = await worldCall(() => buildMod(plan, read));
+    return { reply: plan.reply, plan, mod: { name: madeMod.name, done: madeMod.done, skipped: madeMod.skipped, files: Object.keys(madeMod.files) } };
+  });
+  handle('mod:install', () => {
+    if (!madeMod || !Object.keys(madeMod.files).length) throw new Error('Make a mod first.');
+    const id = mgr.createPack(madeMod.name, madeMod.files);
+    const r = mgr.setTweak(id, true);
+    mgr.log('success', 'Installed AI mod "' + madeMod.name + '"');
+    mgr.save();
+    return { id, name: madeMod.name, conflicts: r.conflicts || [] };
+  });
+  handle('mod:saveRpf', async () => {
+    if (!madeMod || !Object.keys(madeMod.files).length) throw new Error('Make a mod first.');
+    const r = await dialog.showSaveDialog(win, { title: 'Save mod as .rpf', defaultPath: madeMod.name.replace(/\s+/g, '_') + '.rpf', filters: [{ name: 'RPF', extensions: ['rpf'] }] });
+    if (r.canceled) return null;
+    const bytes = modRpf(madeMod.files);
+    fs.writeFileSync(r.filePath, bytes);
+    return { path: r.filePath, bytes: bytes.length };
+  });
+  handle('world:lightning', () => worldCall(() => world.lightning()));
+  handle('world:setLightning', (off) => worldCall(() => world.setLightning(off)));
+  handle('world:thunder', () => worldCall(() => world.thunder()));
+  handle('world:setThunder', (off) => worldCall(() => world.setThunder(off)));
   handle('world:clouds', () => worldCall(() => world.stillClouds()));
   handle('world:setClouds', (on) => worldCall(() => world.setStillClouds(on)));
   handle('world:snow', () => worldCall(() => world.snow()));
@@ -568,7 +605,7 @@ app.whenReady().then(() => {
   });
   handle('gun:export', async (edits, opts = {}, geometry = []) => {
     if (!gun) throw new Error('Open a gun file first.');
-    gun.applyEdits(edits.map((e) => ({ ...e, data: Buffer.from(e.data) })), geometry);
+    gun.applyEdits(edits.map((e) => ({ ...e, data: Buffer.from(e.data) })), geometry, { shine: opts.shine });
     let out = opts.path;
     if (opts.toMods) out = path.join(appPath(), 'mods', path.basename(gun.filePath));
     if (!out) {
@@ -626,6 +663,28 @@ app.whenReady().then(() => {
       fs.writeFileSync(out, bytes);
     }
     return { path: out, bytes: bytes.length };
+  });
+
+  // PNGs from the texture labs: one file asks where to save it, several go in a chosen folder
+  handle('images:save', async (files, opts = {}) => {
+    const clean = (n) => String(n || 'image.png').replace(/[<>:"/\\|?*\x00-\x1f]/g, '_');
+    if (!Array.isArray(files) || !files.length) return null;
+    if (files.length === 1) {
+      const r = await dialog.showSaveDialog(win, { title: opts.title || 'Save image', defaultPath: clean(files[0].name), filters: [{ name: 'PNG image', extensions: ['png'] }] });
+      if (r.canceled) return null;
+      fs.writeFileSync(r.filePath, Buffer.from(files[0].data));
+      return { count: 1, where: r.filePath };
+    }
+    const r = await dialog.showOpenDialog(win, { title: opts.title || 'Choose a folder', properties: ['openDirectory', 'createDirectory'] });
+    if (r.canceled) return null;
+    const used = new Set();
+    for (const f of files) {
+      let name = clean(f.name);
+      for (let i = 2; used.has(name.toLowerCase()); i++) name = clean(f.name).replace(/(\.png)?$/i, '_' + i + '.png');
+      used.add(name.toLowerCase());
+      fs.writeFileSync(path.join(r.filePaths[0], name), Buffer.from(f.data));
+    }
+    return { count: files.length, where: r.filePaths[0] };
   });
 
   handle('shell:reveal', (p) => shell.showItemInFolder(p));
