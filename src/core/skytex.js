@@ -13,13 +13,25 @@ const { parseTextureDictionary } = require('./ytd');
 /** Where the file goes in a pack when it did not come from one. */
 const DEFAULT_REL = 'platform/textures/skydome.ytd';
 
-/** Where the texture dictionary is inside a resource: a .ytd is one, a particle
- *  file (.ypt, e.g. core.ypt with the blood sprays) and a model (.ydr) carry one. */
-function txdOffset(v, label) {
+/** Where the texture dictionaries are inside a resource: a .ytd is one; a particle file
+ *  (.ypt, e.g. core.ypt with the blood sprays) has one plus one in each of its models;
+ *  a model (.ydr) or model dictionary (.ydd) carries them in its shader groups. */
+function txdOffsets(v, label) {
   const ext = String(label).toLowerCase().split('.').pop();
-  if (ext === 'ypt') return v.at(0x20); // ptxFxList.TextureDictionary
-  if (ext === 'ydr') { const sg = v.at(0x10); return sg >= 0 ? v.at(sg + 0x08) : -1; } // ShaderGroup.TextureDictionary
-  return 0;
+  const ofDrawable = (d) => { if (d < 0) return -1; const sg = v.at(d + 0x10); return sg >= 0 ? v.at(sg + 0x08) : -1; };
+  // pgDictionary of drawables: pointer array at 0x30, count at 0x38
+  const ofDictionary = (dict) => {
+    if (dict < 0) return [];
+    const arr = v.at(dict + 0x30), n = v.u16(dict + 0x38);
+    if (arr < 0 || n > 4096) return [];
+    return Array.from({ length: n }, (_, i) => ofDrawable(v.at(arr + i * 8)));
+  };
+  let list;
+  if (ext === 'ypt') list = [v.at(0x20), ...ofDictionary(v.at(0x30))];
+  else if (ext === 'ydr') list = [ofDrawable(0)];
+  else if (ext === 'ydd') list = ofDictionary(0);
+  else list = [0];
+  return [...new Set(list.filter((o) => o >= 0))];
 }
 
 class YtdFile {
@@ -28,7 +40,13 @@ class YtdFile {
     this.label = label;
     this.res = decodeResource(stored);
     const v = new ResView(this.res);
-    this.textures = parseTextureDictionary(v, txdOffset(v, label));
+    const seen = new Set();
+    this.textures = [];
+    for (const o of txdOffsets(v, label)) {
+      let list = [];
+      try { list = parseTextureDictionary(v, o); } catch (e) { /* unreadable dictionary */ }
+      for (const t of list) if (!seen.has(t.dataOffset)) { seen.add(t.dataOffset); this.textures.push(t); }
+    }
     if (!this.textures.length) throw new Error(label + ' has no textures this app can read.');
   }
 

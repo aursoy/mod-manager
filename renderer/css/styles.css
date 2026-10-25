@@ -177,9 +177,9 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
 .btn.ghost.loading::before { border-color: #fff transparent #fff transparent; }
 
 .field { display: grid; gap: 7px; font-size: 12px; color: var(--ink-3); font-weight: 500; }
-.field input[type=text], .field select { height: 40px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--line-2); background: rgba(0,0,0,.5); outline: none; transition: border-color .2s, box-shadow .2s; color: #fff; font-size: 13.5px; user-select: text; }
+.field input:not([type=range]):not([type=color]):not([type=checkbox]), .field select { height: 40px; width: 100%; padding: 0 12px; border-radius: 10px; border: 1px solid var(--line-2); background: rgba(0,0,0,.5); outline: none; transition: border-color .2s, box-shadow .2s; color: #fff; font-size: 13.5px; user-select: text; }
 .field select option { background: #0a0a0a; }
-.field input[type=text]:focus, .field select:focus { border-color: #fff; box-shadow: 0 0 0 4px rgba(255,255,255,.08); }
+.field input:not([type=range]):not([type=color]):not([type=checkbox]):focus, .field select:focus { border-color: #fff; box-shadow: 0 0 0 4px rgba(255,255,255,.08); }
 .colour-field input[type=color] { width: 100%; height: 40px; border-radius: 10px; border: 1px solid var(--line-2); background: none; padding: 4px; cursor: pointer; }
 .colour-field input[type=color]::-webkit-color-swatch-wrapper { padding: 0; }
 .colour-field input[type=color]::-webkit-color-swatch { border: 0; border-radius: 7px; }
@@ -826,8 +826,58 @@ body.custom-bg #bg { display: none; }
 @keyframes skel { from { background-position: 100% 0; } to { background-position: -200% 0; } }
 
 /* settings: AI link */
-.setting.ai-link { display: grid; gap: 14px; align-items: stretch; }
+.setting.ai-link { display: grid; grid-template-columns: 1fr; justify-content: stretch; gap: 14px; align-items: stretch; }
 .ai-link-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .ai-link-head small { display: block; }
-.ai-link-fields { display: grid; grid-template-columns: 1.4fr 1fr .8fr; gap: 12px; }
+.ai-link-fields { display: grid; grid-template-columns: 1.4fr 1fr; gap: 12px; }
+#ai-key { font-family: var(--mono); letter-spacing: .08em; }
+.ai-link .row-end { margin: 0; }
 .ai-link-fields .field { margin: 0; }
+
+/* ---------- dropdowns (dropdown.js) ---------- */
+select.dd-native { position: absolute !important; opacity: 0 !important; pointer-events: none !important; width: 1px !important; height: 1px !important; overflow: hidden; }
+.dd-btn { position: relative; width: 100%; height: 40px; display: flex; align-items: center; gap: 10px; padding: 0 12px 0 14px; border-radius: 11px; border: 1px solid var(--line-2); background: linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.015)), rgba(0,0,0,.45); color: #fff; font: 500 13.5px var(--font); text-align: left; cursor: pointer; transition: border-color .2s, background .2s, box-shadow .25s, transform .2s var(--spring); }
+.dd-btn.compact { height: 36px; font-size: 13px; }
+.dd-btn:hover { border-color: rgba(255,255,255,.28); background: linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.02)), rgba(0,0,0,.45); }
+.dd-btn:active { transform: scale(.985); }
+.dd-btn.open, .dd-btn:focus-visible { border-color: #fff; box-shadow: 0 0 0 4px rgba(255,255,255,.08); outline: none; }
+.dd-btn:disabled { opacity: .45; cursor: default; }
+.dd-label { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dd-chev { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 7px; background: rgba(255,255,255,.07); transition: transform .35s var(--spring), background .2s; }
+.dd-chev svg.ic { width: 13px; height: 13px; transform: rotate(90deg); }
+.dd-btn.open .dd-chev { transform: rotate(180deg); background: #fff; color: #000; }
+.dd-menu { position: fixed; z-index: 300; padding: 6px; border-radius: 14px; background: rgba(12,12,12,.97); border: 1px solid rgba(255,255,255,.14); box-shadow: 0 24px 60px rgba(0,0,0,.75), inset 0 1px 0 rgba(255,255,255,.06); display: flex; flex-direction: column; overflow: hidden; transform-origin: top center; animation: ddIn .22s var(--ease) both; backdrop-filter: blur(18px); }
+.dd-menu.up { transform-origin: bottom center; }
+.dd-menu.out { animation: ddOut .16s ease forwards; }
+@keyframes ddIn { from { opacity: 0; transform: translateY(-6px) scale(.97); } }
+@keyframes ddOut { to { opacity: 0; transform: translateY(-4px) scale(.98); } }
+.dd-menu ul { list-style: none; margin: 0; padding: 0; overflow-y: auto; }
+.dd-menu li { display: flex; align-items: center; gap: 10px; padding: 9px 10px 9px 12px; border-radius: 9px; font-size: 13px; color: var(--ink-2); cursor: pointer; transition: background .12s, color .12s; white-space: nowrap; }
+.dd-menu li span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.dd-menu li svg.ic { width: 14px; height: 14px; opacity: 0; transform: scale(.6); transition: opacity .15s, transform .25s var(--spring); }
+.dd-menu li.hi { background: rgba(255,255,255,.08); color: #fff; }
+.dd-menu li.on { color: #fff; font-weight: 600; }
+.dd-menu li.on svg.ic { opacity: 1; transform: none; }
+.dd-menu li.off { opacity: .35; cursor: default; }
+.dd-menu li.hidden { display: none; }
+.dd-search { display: flex; align-items: center; gap: 8px; margin: 2px 2px 6px; padding: 0 10px; height: 34px; border-radius: 9px; background: rgba(255,255,255,.05); border: 1px solid var(--line); }
+.dd-search svg.ic { width: 14px; height: 14px; opacity: .6; }
+.dd-search input { flex: 1; background: none; border: 0; outline: none; color: #fff; font-size: 13px; }
+
+/* ---------- 3D tilt (Settings): menu items and tabs become little cards ---------- */
+body.tilt #nav { gap: 6px; }
+body.tilt .nav-pill, body.tilt .nav-hover, body.tilt .gfx-tabs .seg-thumb, body.tilt .tabs .tab-pill, body.tilt .vt-pill { display: none; }
+body.tilt #nav a, body.tilt .gfx-tabs button, body.tilt .tabs .tab, body.tilt .view-tabs .vt {
+  position: relative; border: 1px solid var(--line); background: linear-gradient(160deg, rgba(255,255,255,.06), rgba(255,255,255,.015)); border-radius: 12px;
+  transform: perspective(520px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)) translateZ(0);
+  transition: transform .55s var(--spring), background .25s, border-color .25s, box-shadow .35s, color .25s; will-change: transform; }
+body.tilt #nav a.tilting, body.tilt .gfx-tabs button.tilting, body.tilt .tabs .tab.tilting, body.tilt .view-tabs .vt.tilting { transition: transform .08s linear, background .25s, border-color .25s, box-shadow .35s; border-color: rgba(255,255,255,.22); box-shadow: 0 14px 30px rgba(0,0,0,.45); }
+body.tilt #nav a::after, body.tilt .gfx-tabs button::after, body.tilt .tabs .tab::after, body.tilt .view-tabs .vt::after {
+  content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; opacity: var(--to, 0); transition: opacity .3s;
+  background: radial-gradient(160px circle at var(--tx, 50%) var(--ty, 50%), rgba(255,255,255,.16), transparent 60%); }
+body.tilt #nav a.active, body.tilt .gfx-tabs button.on, body.tilt .tabs .tab.on, body.tilt .view-tabs .vt.on { background: #fff; color: #000; border-color: #fff; box-shadow: 0 10px 28px rgba(255,255,255,.14); }
+body.tilt #nav a.active::after, body.tilt .gfx-tabs button.on::after, body.tilt .tabs .tab.on::after, body.tilt .view-tabs .vt.on::after { background: radial-gradient(160px circle at var(--tx, 50%) var(--ty, 50%), rgba(0,0,0,.08), transparent 60%); }
+body.tilt .gfx-tabs { display: flex; gap: 6px; padding: 0; border: 0; background: none; }
+body.tilt .gfx-tabs button { height: 38px; }
+body.tilt .tabs { gap: 6px; padding: 0; border: 0; background: none; }
+body.tilt .view-tabs { gap: 4px; }

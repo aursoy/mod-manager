@@ -126,7 +126,7 @@ test('the whole app: water, packs, mods, world, blood FX, Pack AI, editor, AI li
   const bf = path.join(tmp, 'Downloads', 'Severance.rpf');
   fs.writeFileSync(bf, rpf.writeRpf({ type: 'dir', name: '', children: [{ type: 'res', name: 'core.ypt', stored: ypt, sysFlags: ypt.readUInt32LE(8), gfxFlags: ypt.readUInt32LE(12) }] }));
   const blood = await call('tex:openFiles', 'blood', [bf]);
-  check('blood FX RPF opens', blood.items.length === 1 && blood.items[0].textures.map((t) => t.name).join() === 'blood_spray');
+  check('blood FX RPF opens with every texture, blood first', blood.items.length === 1 && blood.items[0].textures.map((t) => t.name).join() === 'blood_spray,fire');
   const bt = blood.items[0].textures[0];
   const bres = await call('tex:install', 'blood', [{ key: 0, texIndex: bt.index, data: new Uint8Array(bt.data.length).fill(0x44) }]);
   check('blood FX installed into mods', bres.verified.includes('@mods/Severance.rpf') && fs.existsSync(path.join(mods, 'Severance.rpf')));
@@ -145,8 +145,8 @@ test('the whole app: water, packs, mods, world, blood FX, Pack AI, editor, AI li
   check('editor saves into that pack', fs.readFileSync(path.join(packDir, 'citizen', 'common', 'data', 'timecycle', 'w_extrasunny.xml'), 'utf8').includes('EDITED'));
 
   // ---- AI link settings (key stored encrypted) ----
-  const cfg = await call('ai:setConfig', { url: 'https://api.anthropic.com', key: 'sk-ant-xyz', model: '' });
-  check('AI link saved', cfg.on && cfg.hasKey && cfg.model === 'claude-opus-5-5');
+  const cfg = await call('ai:setConfig', { key: 'AIzaSyFAKE', model: '' });
+  check('AI saved, provider found from the key', cfg.on && cfg.hasKey && cfg.provider === 'Google Gemini');
   await call('ai:setConfig', { url: '', key: '' });
   check('AI link off', !(await call('ai:config')).on);
 

@@ -188,12 +188,12 @@ async function openFiles(kind, paths, ctx) {
   return copySource(K, found, paths.length === 1 ? path.basename(paths[0]) : paths.length + ' files');
 }
 
-/** One RPF the player chose. GTA keeps blood in fxdecal.ytd / peddamagedecals.ytd and
- *  in the particle file core.ypt (blood sprays); blood mods ship any of those, at any depth.
- *  Blood-named files come first; else every texture file in the archive (the player said
- *  this is the one). In a particle file only the blood textures are shown, when it has any. */
-const BLOOD_TEX = /blood|gore|splat|bld|wound|ped_?dam|gunshot|bullet|decal/i;
-const ANY_TEX = (n) => /\.(ytd|ypt|ydr)$/i.test(n);
+/** One RPF the player chose. GTA keeps blood in fxdecal.ytd / peddamagedecals.ytd and in
+ *  the particle file core.ypt (blood sprays); blood mods ship any of those, at any depth.
+ *  Every texture in the archive is listed (the player said this is the one), blood-named
+ *  files and textures first. */
+const BLOOD_TEX = /blood|gore|splat|bld|wound|ped_?dam|gunshot|bullet|decal|splash|drip/i;
+const ANY_TEX = (n) => /\.(ytd|ypt|ydr|ydd)$/i.test(n);
 
 async function pickedRpf(K, file, ctx) {
   const name = path.basename(file);
@@ -202,18 +202,18 @@ async function pickedRpf(K, file, ctx) {
   return withKeys(() => {
     const root = rpf.readRpf(buf, name);
     let t = null;
-    for (const test of [(n) => K.test(n) || /^core\.ypt$/i.test(n), ANY_TEX]) {
-      try { t = new RpfTextures(null, name, test, root); break; } catch (e) { if (e.code === rpf.NEED_KEYS) throw e; }
-    }
+    try { t = new RpfTextures(null, name, ANY_TEX, root); } catch (e) { if (e.code === rpf.NEED_KEYS) throw e; }
     if (!t) throw new Error(name + ' has no textures this app can read. Inside: ' + describeTree(root) + '.');
     const rel = '@mods/' + name;
     return {
       label: name,
       items: t.hits.map((h, i) => {
         const ytd = t.ytds[i];
-        const blood = /\.ypt$/i.test(h.entry.name) ? ytd.textures.map((x, j) => (BLOOD_TEX.test(x.name) ? j : -1)).filter((j) => j >= 0) : [];
-        return { key: i, name: K.name(h.path), file: h.entry.name, path: h.path, ytd, only: blood.length ? blood : null };
-      }),
+        // blood textures first, the rest after
+        const score = (x) => (BLOOD_TEX.test(x.name) ? 0 : 1);
+        const order = ytd.textures.map((x, j) => j).sort((a, b) => score(ytd.textures[a]) - score(ytd.textures[b]));
+        return { key: i, name: K.name(h.path), file: h.entry.name, path: h.path, ytd, order, blood: K.test(h.entry.name) || /^core\.ypt$/i.test(h.entry.name) || ytd.textures.some((x) => BLOOD_TEX.test(x.name)) };
+      }).sort((a, b) => b.blood - a.blood),
       replace(key, ti, data) { t.replace(key, ti, data); },
       outputs() { return t.edited ? { [rel]: t.bytes() } : {}; },
       /** "Save to folder": the edited RPF itself */

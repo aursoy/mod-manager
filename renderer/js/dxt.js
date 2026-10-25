@@ -1,10 +1,56 @@
-// Texture codec: DXT1 / DXT3 / DXT5 / A8R8G8B8 / A8B8G8R8 decode + encode.
+// Texture codec, decode + encode: DXT1 / DXT3 / DXT5, ATI1 (BC4, one channel), ATI2 (BC5,
+// two channels: normal maps), A8R8G8B8 / X8R8G8B8 / A8B8G8R8, A1R5G5B5, A8 and L8.
 
-const BLOCK = { DXT1: 8, DXT3: 16, DXT5: 16 };
+const BLOCK = { DXT1: 8, DXT3: 16, DXT5: 16, ATI1: 8, ATI2: 16 };
+const BPP = { A8R8G8B8: 4, X8R8G8B8: 4, A8B8G8R8: 4, A1R5G5B5: 2, A8: 1, L8: 1 };
 
 export function levelSize(format, w, h) {
   if (BLOCK[format]) return Math.max(1, Math.ceil(w / 4)) * Math.max(1, Math.ceil(h / 4)) * BLOCK[format];
-  return w * h * 4;
+  return w * h * (BPP[format] || 4);
+}
+
+// one BC4 channel block (8 bytes) -> 16 values
+function decodeChannel(src, o) {
+  const ap = alphaPalette(src[o], src[o + 1]);
+  let bits = 0n;
+  for (let i = 0; i < 6; i++) bits |= BigInt(src[o + 2 + i]) << BigInt(8 * i);
+  const v = [];
+  for (let i = 0; i < 16; i++) v.push(ap[Number((bits >> BigInt(3 * i)) & 7n)]);
+  return v;
+}
+
+function decodePlain(format, src, w, h, out) {
+  for (let i = 0; i < w * h; i++) {
+    const d = i * 4;
+    if (format === 'A1R5G5B5') {
+      const v = src[i * 2] | (src[i * 2 + 1] << 8);
+      out[d] = ((v >> 10) & 31) * 255 / 31; out[d + 1] = ((v >> 5) & 31) * 255 / 31; out[d + 2] = (v & 31) * 255 / 31; out[d + 3] = v & 0x8000 ? 255 : 0;
+    } else if (format === 'A8') { out[d] = out[d + 1] = out[d + 2] = 255; out[d + 3] = src[i]; }
+    else if (format === 'L8') { out[d] = out[d + 1] = out[d + 2] = src[i]; out[d + 3] = 255; }
+    else {
+      const swap = format !== 'A8B8G8R8';
+      out[d] = src[i * 4 + (swap ? 2 : 0)]; out[d + 1] = src[i * 4 + 1]; out[d + 2] = src[i * 4 + (swap ? 0 : 2)];
+      out[d + 3] = format === 'X8R8G8B8' ? 255 : src[i * 4 + 3];
+    }
+  }
+  return out;
+}
+
+function encodePlain(format, rgba, w, h, out) {
+  for (let i = 0; i < w * h; i++) {
+    const s = i * 4;
+    if (format === 'A1R5G5B5') {
+      const v = (rgba[s + 3] >= 128 ? 0x8000 : 0) | (Math.round(rgba[s] * 31 / 255) << 10) | (Math.round(rgba[s + 1] * 31 / 255) << 5) | Math.round(rgba[s + 2] * 31 / 255);
+      out[i * 2] = v & 255; out[i * 2 + 1] = v >> 8;
+    } else if (format === 'A8') out[i] = rgba[s + 3];
+    else if (format === 'L8') out[i] = Math.round(rgba[s] * 0.3 + rgba[s + 1] * 0.59 + rgba[s + 2] * 0.11);
+    else {
+      const swap = format !== 'A8B8G8R8';
+      out[s] = rgba[s + (swap ? 2 : 0)]; out[s + 1] = rgba[s + 1]; out[s + 2] = rgba[s + (swap ? 0 : 2)];
+      out[s + 3] = format === 'X8R8G8B8' ? 255 : rgba[s + 3];
+    }
+  }
+  return out;
 }
 
 const c565 = (c) => [((c >> 11) & 31) * 255 / 31 | 0, ((c >> 5) & 63) * 255 / 63 | 0, (c & 31) * 255 / 31 | 0];
@@ -33,20 +79,32 @@ function alphaPalette(a0, a1) {
 /** Decode one mip level to RGBA8. */
 export function decode(format, src, w, h) {
   const out = new Uint8ClampedArray(w * h * 4);
-  if (format === 'A8R8G8B8' || format === 'A8B8G8R8') {
-    const swap = format === 'A8R8G8B8';
-    for (let i = 0; i < w * h; i++) {
-      out[i * 4] = src[i * 4 + (swap ? 2 : 0)];
-      out[i * 4 + 1] = src[i * 4 + 1];
-      out[i * 4 + 2] = src[i * 4 + (swap ? 0 : 2)];
-      out[i * 4 + 3] = src[i * 4 + 3];
-    }
-    return out;
-  }
+  if (BPP[format]) return decodePlain(format, src, w, h, out);
   const bs = BLOCK[format];
   if (!bs) throw new Error('Unsupported format ' + format);
   const bw = Math.max(1, Math.ceil(w / 4)), bh = Math.max(1, Math.ceil(h / 4));
   const dv = new DataView(src.buffer, src.byteOffset, src.byteLength);
+  if (format === 'ATI1' || format === 'ATI2') {
+    for (let by = 0; by < bh; by++) {
+      for (let bx = 0; bx < bw; bx++) {
+        const o = (by * bw + bx) * bs;
+        const r = decodeChannel(src, o);
+        const g = format === 'ATI2' ? decodeChannel(src, o + 8) : null;
+        for (let k = 0; k < 16; k++) {
+          const x = bx * 4 + (k & 3), y = by * 4 + (k >> 2);
+          if (x >= w || y >= h) continue;
+          const d = (y * w + x) * 4;
+          if (g) {
+            // normal map: rebuild blue from red and green so it previews like one
+            const nx = r[k] / 127.5 - 1, ny = g[k] / 127.5 - 1;
+            out[d] = r[k]; out[d + 1] = g[k]; out[d + 2] = Math.sqrt(Math.max(0, 1 - nx * nx - ny * ny)) * 127.5 + 127.5;
+          } else { out[d] = out[d + 1] = out[d + 2] = r[k]; }
+          out[d + 3] = 255;
+        }
+      }
+    }
+    return out;
+  }
   for (let by = 0; by < bh; by++) {
     for (let bx = 0; bx < bw; bx++) {
       let o = (by * bw + bx) * bs;
@@ -150,23 +208,22 @@ function encodeAlpha5(px, out, o) {
 /** Encode one RGBA8 level. */
 export function encode(format, rgba, w, h) {
   const out = new Uint8Array(levelSize(format, w, h));
-  if (format === 'A8R8G8B8' || format === 'A8B8G8R8') {
-    const swap = format === 'A8R8G8B8';
-    for (let i = 0; i < w * h; i++) {
-      out[i * 4] = rgba[i * 4 + (swap ? 2 : 0)];
-      out[i * 4 + 1] = rgba[i * 4 + 1];
-      out[i * 4 + 2] = rgba[i * 4 + (swap ? 0 : 2)];
-      out[i * 4 + 3] = rgba[i * 4 + 3];
-    }
-    return out;
-  }
+  if (BPP[format]) return encodePlain(format, rgba, w, h, out);
   const bs = BLOCK[format];
   const bw = Math.max(1, Math.ceil(w / 4)), bh = Math.max(1, Math.ceil(h / 4));
   const px = new Uint8ClampedArray(64);
+  const ch = new Uint8ClampedArray(64);
   for (let by = 0; by < bh; by++) {
     for (let bx = 0; bx < bw; bx++) {
       readBlock(rgba, w, h, bx, by, px);
       let o = (by * bw + bx) * bs;
+      if (format === 'ATI1' || format === 'ATI2') {
+        // each channel is encoded like a DXT5 alpha block
+        for (let i = 0; i < 16; i++) ch[i * 4 + 3] = px[i * 4];
+        encodeAlpha5(ch, out, o);
+        if (format === 'ATI2') { for (let i = 0; i < 16; i++) ch[i * 4 + 3] = px[i * 4 + 1]; encodeAlpha5(ch, out, o + 8); }
+        continue;
+      }
       if (format === 'DXT3') {
         for (let i = 0; i < 8; i++) out[o + i] = (px[i * 8 + 3] >> 4) | ((px[i * 8 + 7] >> 4) << 4);
         o += 8;
@@ -180,4 +237,4 @@ export function encode(format, rgba, w, h) {
   return out;
 }
 
-export const EDITABLE = ['DXT1', 'DXT3', 'DXT5', 'A8R8G8B8', 'A8B8G8R8'];
+export const EDITABLE = ['DXT1', 'DXT3', 'DXT5', 'ATI1', 'ATI2', 'A8R8G8B8', 'X8R8G8B8', 'A8B8G8R8', 'A1R5G5B5', 'A8', 'L8'];

@@ -251,3 +251,23 @@ test('citizen manager: timecycle cycler items, targeted grading and weather acti
   assert.ok(!fs.existsSync(activeSunny));
   assert.ok(!fs.existsSync(activeClear));
 });
+
+test('texture codec: single-channel, normal map, 16-bit and 8-bit formats round trip', async () => {
+  const dxt = await import('../renderer/js/dxt.js');
+  const w = 32, h = 32;
+  const rgba = new Uint8ClampedArray(w * h * 4);
+  for (let i = 0; i < w * h; i++) { rgba[i * 4] = (i * 7) & 255; rgba[i * 4 + 1] = (i * 3) & 255; rgba[i * 4 + 2] = 90; rgba[i * 4 + 3] = i & 1 ? 255 : 0; }
+  const near = (f, ch, tol) => {
+    const dec = dxt.decode(f, dxt.encode(f, rgba, w, h), w, h);
+    let e = 0;
+    for (let i = 0; i < w * h; i++) e += Math.abs(dec[i * 4 + ch] - rgba[i * 4 + ch]);
+    assert.ok(e / (w * h) <= tol, f + ' channel ' + ch + ' error ' + e / (w * h));
+  };
+  for (const f of ['ATI1', 'ATI2']) assert.strictEqual(dxt.encode(f, rgba, w, h).length, dxt.levelSize(f, w, h));
+  near('ATI1', 0, 40); near('ATI2', 0, 40); near('ATI2', 1, 40);
+  near('A1R5G5B5', 0, 4); near('A1R5G5B5', 3, 0);
+  near('X8R8G8B8', 0, 0); near('A8', 3, 0);
+  const l8 = dxt.decode('L8', dxt.encode('L8', rgba, w, h), w, h);
+  assert.strictEqual(l8[0], l8[1]);
+  for (const f of ['ATI1', 'ATI2', 'A1R5G5B5', 'X8R8G8B8', 'A8', 'L8']) assert.ok(dxt.EDITABLE.includes(f));
+});

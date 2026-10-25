@@ -488,16 +488,17 @@
             <div class="look-actions"><button class="btn primary sm" id="look-pick"><i data-icon="image"></i>Choose picture or video</button><button class="btn ghost sm" id="look-clear"><i data-icon="undo"></i>Back to default</button></div>
           </div>
           <div class="card setting"><div><b>Notification sounds</b><small>Soft clicks when things happen</small></div><button class="switch" data-setting="sound"><i></i></button></div>
+          <div class="card setting"><div><b>3D tilt</b><small>Menu and tabs tilt like cards</small></div><button class="switch" data-setting="tilt"><i></i></button></div>
           <div class="card setting"><div><b>Reduce motion</b><small>Tone down animations</small></div><button class="switch" data-setting="reduceMotion"><i></i></button></div>
           <div class="card setting"><div><b>Background field</b><small>Interactive dot grid</small></div><button class="switch" data-setting="bg"><i></i></button></div>
           <div class="card setting ai-link span-2">
-            <div class="ai-link-head"><div><b>AI link</b><small id="ai-state">Off — the Pack AI works offline</small></div><span class="tag" id="ai-tag">Offline</span></div>
+            <div class="ai-link-head"><div><b>AI</b><small id="ai-state">Powers the AI chat in Graphics. Paste an API key from any AI.</small></div><span class="tag" id="ai-tag">Off</span></div>
             <div class="ai-link-fields">
-              <label class="field"><span>API link</span><input type="text" id="ai-url" placeholder="https://api.anthropic.com" spellcheck="false" /></label>
-              <label class="field"><span>API key</span><input type="password" id="ai-key" placeholder="Paste key" spellcheck="false" /></label>
-              <label class="field"><span>Model</span><input type="text" id="ai-model" placeholder="claude-opus-5-5" spellcheck="false" /></label>
+              <label class="field"><span>API key</span><input type="password" id="ai-key" placeholder="Paste your API key" spellcheck="false" autocomplete="off" /></label>
+              <label class="field"><span>Model</span><select id="ai-model"><option value="">Auto</option></select></label>
             </div>
-            <div class="row-end"><button class="btn ghost sm" id="ai-off"><i data-icon="x"></i>Turn off</button><button class="btn primary sm" id="ai-save"><i data-icon="link"></i>Save &amp; test</button></div>
+            <div class="field hidden" id="ai-url-wrap"><span>API link</span><input type="text" id="ai-url" placeholder="Only if your AI isn't found from the key, e.g. http://localhost:11434/v1" spellcheck="false" /></div>
+            <div class="row-between"><button class="link-btn" id="ai-more">Using another AI? Add its link</button><div class="row-end"><button class="btn ghost sm" id="ai-off"><i data-icon="x"></i>Turn off</button><button class="btn primary sm" id="ai-save"><i data-icon="check"></i>Save &amp; test</button></div></div>
           </div>
           <div class="card setting"><div><b>Tutorial</b><small>Quick tour of the app</small></div><button class="btn ghost sm" id="tour-replay"><i data-icon="play"></i>Show</button></div>
           <div class="card setting"><div><b>Encrypted RPFs</b><small id="keys-state">Checking…</small></div><button class="btn primary sm" id="keys-btn">Unlock</button></div>

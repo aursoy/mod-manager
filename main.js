@@ -14,7 +14,7 @@ const { findGtaDirs, DEFAULT_REL: SKY_REL } = require('./src/core/skytex');
 const { openSkySource, skySources } = require('./src/core/skysource');
 const { listSources, openSource, openFiles } = require('./src/core/texsource');
 const { WorldFiles } = require('./src/core/worldfiles');
-const { askPackAi, isAnthropic, DEFAULT_ANTHROPIC_MODEL } = require('./src/core/packai');
+const { askPackAi, listModels, provider: aiProvider } = require('./src/core/packai');
 const { EditorPack } = require('./src/core/editorpack');
 const { readFileFrom } = require('./src/core/rpfscan');
 const { GtaKeys, findAesKey, findGtaExes } = require('./src/core/ngcrypto');
@@ -30,8 +30,8 @@ let sky = null;     // sky texture being replaced: { ytd, rel, label, out }
 const sounds = new SoundPack();
 const discord = new DiscordRpc();
 const startedAt = Date.now();
-// The app's own Discord application (discord.com/developers). With it set, everyone's
-// Discord profile shows up by itself; a player can also enter their own in the profile.
+// The app's own Discord application (discord.com/developers), set once by whoever builds
+// the app. With it, everyone's Discord profile shows up by itself; players never enter anything.
 const DISCORD_APP_ID = String(process.env.KT_DISCORD_APP_ID || require('./package.json').discordAppId || '');
 
 function createWindow() {
@@ -307,7 +307,13 @@ app.whenReady().then(() => {
   // ----- texture labs: clouds, blood FX -----
   const labs = {};
   const PACK_NAMES = { clouds: 'Custom clouds', blood: 'Custom blood FX' };
-  const labInfo = (kind) => ({ label: labs[kind].label, items: labs[kind].items.map((x) => ({ key: x.key, name: x.name, file: x.file, path: x.path, textures: x.ytd.describe(true).filter((t) => !x.only || x.only.includes(t.index)) })) });
+  const labInfo = (kind) => ({
+    label: labs[kind].label,
+    items: labs[kind].items.map((x) => {
+      const all = x.ytd.describe(true);
+      return { key: x.key, name: x.name, file: x.file, path: x.path, textures: x.order ? x.order.map((i) => all[i]) : all };
+    }),
+  });
   handle('tex:list', (kind) => listSources(kind, skyCtx()));
   handle('tex:open', async (kind, id) => { labs[kind] = await openSource(kind, id, skyCtx()); return labInfo(kind); });
   handle('tex:openFiles', async (kind, given) => {
@@ -412,7 +418,7 @@ app.whenReady().then(() => {
   handle('look:set', (patch) => look.set(patch));
   handle('look:clear', () => look.clear());
 
-  // ----- AI link (Pack AI) -----
+  // ----- AI (the Graphics AI chat): any provider's API key -----
   // The key is stored encrypted with the OS keychain when Electron can.
   const aiCfg = () => {
     const a = mgr.state.ai || {};
@@ -420,17 +426,22 @@ app.whenReady().then(() => {
     try { key = a.key ? (a.enc && safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(Buffer.from(a.key, 'base64')) : a.key) : ''; } catch (e) { key = ''; }
     return { url: a.url || '', model: a.model || '', key };
   };
-  const aiPublic = () => { const c = aiCfg(); return { url: c.url, model: c.model || (c.url && isAnthropic(c) ? DEFAULT_ANTHROPIC_MODEL : ''), hasKey: !!c.key, on: !!c.url }; };
+  const aiPublic = () => {
+    const c = aiCfg();
+    const p = (c.key || c.url) ? aiProvider(c) : null;
+    return { url: c.url, model: c.model, hasKey: !!c.key, on: !!(c.key || c.url), provider: p ? p.name : (c.key ? 'Unknown' : '') };
+  };
   handle('ai:config', () => aiPublic());
   handle('ai:setConfig', (patch) => {
     const cur = aiCfg();
     const next = { url: String(patch.url ?? cur.url).trim(), model: String(patch.model ?? cur.model).trim(), key: patch.key != null ? String(patch.key).trim() : cur.key };
-    if (next.url && !/^https?:\/\//i.test(next.url)) throw new Error('The API link must start with http:// or https://');
+    if (next.url && !/^https?:\/\//i.test(next.url)) throw new Error('The link must start with http:// or https://');
     const enc = !!next.key && safeStorage.isEncryptionAvailable();
     mgr.state.ai = { url: next.url, model: next.model, key: next.key ? (enc ? safeStorage.encryptString(next.key).toString('base64') : next.key) : '', enc };
     mgr.save();
     return aiPublic();
   });
+  handle('ai:models', () => listModels(aiCfg()));
   handle('ai:ask', (input) => askPackAi(aiCfg(), input));
   handle('ai:test', async () => (await askPackAi(aiCfg(), { text: 'pvp pack, no fog', spec: null })).reply);
 
@@ -446,9 +457,10 @@ app.whenReady().then(() => {
     return 'data:image/' + ext + ';base64,' + fs.readFileSync(f).toString('base64');
   });
   handle('discord:connect', async (clientId) => {
-    const id = String(clientId || mgr.getProfile().discordClientId || DISCORD_APP_ID);
+    const id = String(DISCORD_APP_ID || mgr.getProfile().discordClientId || '');
+    if (!id) throw new Error('Discord is not set up in this build of the app.');
     const user = await discord.connect(id);
-    mgr.setProfile({ discordClientId: id === DISCORD_APP_ID ? '' : id, discord: user, discordOff: false });
+    mgr.setProfile({ discord: user, discordOff: false });
     discord.setActivity('Modding FiveM', 'Kt Mod Manager', startedAt);
     return user;
   });
@@ -456,7 +468,7 @@ app.whenReady().then(() => {
   // Connects by itself: at start, and again every 30 s while Discord is closed.
   const autoDiscord = async () => {
     const p = mgr.getProfile();
-    const id = p.discordClientId || DISCORD_APP_ID;
+    const id = DISCORD_APP_ID || p.discordClientId;
     if (discord.sock || discord.busy || !id || p.discordOff) return;
     discord.busy = true;
     try {

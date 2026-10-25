@@ -39,10 +39,11 @@ void main() {
   vec3 col = mix(hor, zenith, up);
   if (h < 0.0) col = mix(hor, fogCol * 0.6, clamp(-h * 6.0, 0.0, 1.0));
   // the pack's sky picture (GTA blends it in at night, or all day)
+  // (spread over the sky in front of the camera, so the whole picture is in view)
   if (hasImg && h > -0.02) {
-    vec2 uv = vec2(atan(d.z, d.x) / 6.2831853 + 0.5, 1.0 - clamp(h, 0.0, 1.0));
-    vec3 t = texture2D(img, uv * vec2(2.0, 1.0)).rgb;
-    col = mix(col, t, imgMix * smoothstep(-0.02, 0.06, h));
+    vec2 uv = vec2(0.5 + atan(d.x, -d.z) / 2.4, 1.0 - clamp(h / 0.62, 0.0, 1.0));
+    vec3 t = texture2D(img, clamp(uv, 0.0, 1.0)).rgb;
+    col = mix(col, t, imgMix * smoothstep(-0.02, 0.05, h));
   }
   // stars
   if (stars > 0.001 && h > 0.0) {
@@ -90,7 +91,8 @@ const WATER_VERT = `varying vec3 vPos; void main() { vec4 w = modelMatrix * vec4
 const WATER_FRAG = `
 uniform vec3 zenith, horizon, sunCol, fogCol, deep;
 uniform vec3 sunDir, moonDir, moonCol;
-uniform float time, day, fogFar;
+uniform float time, day, fogFar, imgMix;
+uniform sampler2D img; uniform bool hasImg;
 varying vec3 vPos;
 ${NOISE}
 void main() {
@@ -105,6 +107,7 @@ void main() {
   vec3 r = reflect(v, n);
   float fres = 0.04 + 0.96 * pow(1.0 - max(dot(-v, n), 0.0), 5.0);
   vec3 sky = mix(horizon, zenith, pow(clamp(r.y, 0.0, 1.0), 0.6));
+  if (hasImg) sky = mix(sky, texture2D(img, clamp(vec2(0.5 + atan(r.x, -r.z) / 2.4, 1.0 - clamp(r.y / 0.62, 0.0, 1.0)), 0.0, 1.0)).rgb, imgMix);
   vec3 col = mix(deep, sky, fres);
   col += sunCol * pow(max(dot(r, sunDir), 0.0), 220.0) * 6.0 * smoothstep(-0.05, 0.05, sunDir.y);
   col += moonCol * pow(max(dot(r, moonDir), 0.0), 160.0) * 1.5 * smoothstep(-0.05, 0.05, moonDir.y);
@@ -162,7 +165,7 @@ function build() {
   clouds.renderOrder = -1;
   scene.add(clouds);
 
-  const waterU = { zenith: skyU.zenith, horizon: skyU.horizon, sunCol: skyU.sunCol, moonCol: skyU.moonCol, fogCol: skyU.fogCol, deep: { value: col() }, sunDir: skyU.sunDir, moonDir: skyU.moonDir, time: skyU.time, day: skyU.day, fogFar: { value: 1500 } };
+  const waterU = { zenith: skyU.zenith, horizon: skyU.horizon, sunCol: skyU.sunCol, moonCol: skyU.moonCol, fogCol: skyU.fogCol, deep: { value: col() }, sunDir: skyU.sunDir, moonDir: skyU.moonDir, time: skyU.time, day: skyU.day, fogFar: { value: 1500 }, img: skyU.img, hasImg: skyU.hasImg, imgMix: skyU.imgMix };
   const water = new THREE.Mesh(new THREE.PlaneGeometry(8000, 8000), new THREE.ShaderMaterial({ uniforms: waterU, vertexShader: WATER_VERT, fragmentShader: WATER_FRAG, fog: false }));
   water.rotation.x = -Math.PI / 2;
   scene.add(water);
@@ -259,11 +262,15 @@ function render(canvas, sec, hour, opts) {
   // the sky picture
   if (opts && opts.image) {
     if (S.imgSrc !== opts.image) {
+      // copied to a 2048 x 1024 canvas: power-of-two sizes work on every GPU
+      const pc = document.createElement('canvas');
+      pc.width = 2048; pc.height = 1024;
+      pc.getContext('2d').drawImage(opts.image, 0, 0, 2048, 1024);
       if (S.imgTex) S.imgTex.dispose();
-      S.imgTex = new THREE.Texture(opts.image);
+      S.imgTex = new THREE.CanvasTexture(pc);
       S.imgTex.colorSpace = THREE.SRGBColorSpace;
-      S.imgTex.wrapS = THREE.RepeatWrapping;
-      S.imgTex.needsUpdate = true;
+      S.imgTex.wrapS = S.imgTex.wrapT = THREE.ClampToEdgeWrapping;
+      S.imgTex.anisotropy = 4;
       S.imgSrc = opts.image;
     }
     U.img.value = S.imgTex; U.hasImg.value = true;

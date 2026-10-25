@@ -6,14 +6,15 @@ const FORMATS = {
   0x31545844: { name: 'DXT1', block: 8, editable: true },
   0x33545844: { name: 'DXT3', block: 16, editable: true },
   0x35545844: { name: 'DXT5', block: 16, editable: true },
-  0x31495441: { name: 'ATI1', block: 8, editable: false },
-  0x32495441: { name: 'ATI2', block: 16, editable: false },
+  0x31495441: { name: 'ATI1', block: 8, editable: true },
+  0x32495441: { name: 'ATI2', block: 16, editable: true },
   0x20374342: { name: 'BC7', block: 16, editable: false },
   21: { name: 'A8R8G8B8', bpp: 4, editable: true },
+  22: { name: 'X8R8G8B8', bpp: 4, editable: true },
   32: { name: 'A8B8G8R8', bpp: 4, editable: true },
-  25: { name: 'A1R5G5B5', bpp: 2, editable: false },
-  28: { name: 'A8', bpp: 1, editable: false },
-  50: { name: 'L8', bpp: 1, editable: false },
+  25: { name: 'A1R5G5B5', bpp: 2, editable: true },
+  28: { name: 'A8', bpp: 1, editable: true },
+  50: { name: 'L8', bpp: 1, editable: true },
 };
 
 function levelSize(fmt, w, h) {
