@@ -1,11 +1,11 @@
-// Gun Lab: 3D preview of weapon drawables, texture recolouring, real 3D text
-// (extruded, bevelled and lit meshes, see text3d.js) stamped into the texture,
-// and re-encoding back into the original archive.
+// Gun Lab: 3D preview of weapon drawables, texture recolouring, real 3D parts
+// (extruded text, a chain with a pendant; see gunparts.js) that are written into
+// the gun's model, and re-encoding back into the original archive.
 //
 // Performance model: colour filters run on a full-res "graded" canvas only
-// when colour settings change. Interactive redraws (text drag, sliders for
-// text) only touch a <=1024px preview canvas (3D texture) and the on-screen
-// 2D view canvas. Full-res compositing happens once, at export.
+// when colour settings change. Interactive redraws only touch a <=1024px
+// preview canvas (3D texture) and the on-screen 2D view canvas. Full-res
+// compositing happens once, at export.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
@@ -14,7 +14,8 @@ import { icon } from './icons.js';
 import { decode, encode, EDITABLE } from './dxt.js';
 import { syncSeg, fillRange, busy } from './fx.js';
 import { needsKeys, ensureKeys, cleanError } from './keys.js';
-import { render3d, silhouette, loadFont, addFont, fontReady } from './text3d.js';
+import { loadFont, addFont, fontReady } from './text3d.js';
+import * as GP from './gunparts.js';
 
 const api = window.api;
 const $ = (s, r = document) => r.querySelector(s);
@@ -29,9 +30,10 @@ const AUX = /(_n|_s|_m|_nm|_spec|_normal|_mask)$/i;
 let pack = null;
 let textures = [];
 let selected = -1;
-let selLayer = null;
-let placing = false;
-let layerSeq = 1;
+let parts = []; // 3D text and chains
+let selPart = null;
+let placing = null; // the part waiting for a click on the gun
+let partSeq = 1;
 
 const canvas = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
 const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
@@ -107,7 +109,7 @@ function initThree() {
   };
   loop();
 
-  // Click-to-place text using the UV under the cursor.
+  // Click on the model to place the selected part there.
   let down = null;
   renderer.domElement.addEventListener('pointerdown', (e) => { down = { x: e.clientX, y: e.clientY }; });
   renderer.domElement.addEventListener('pointerup', (e) => {
@@ -116,9 +118,9 @@ function initThree() {
     const ndc = new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
     const ray = new THREE.Raycaster();
     ray.setFromCamera(ndc, camera);
-    const hit = ray.intersectObjects(three.meshes, false)[0];
-    if (!hit || !hit.uv) return notify.warning('Missed the gun', 'Click directly on the model surface.');
-    placeLayerAt(hit.object.userData.texIdx ?? selected, hit.uv);
+    const hit = ray.intersectObjects(three.meshes.filter((m) => !m.userData.card), false)[0];
+    if (!hit) return notify.warning('Missed the gun', 'Click on the model.');
+    placePartAt(hit);
   });
 }
 
@@ -194,6 +196,7 @@ function buildModel() {
       const mesh = new THREE.Mesh(geo, null);
       mesh.userData.texIdx = (m.textures || []).map((n) => byName.get(n)).find((i) => i !== undefined);
       mesh.userData.hasUv = !!m.uvs;
+      mesh.userData.src = m;
       holder.add(mesh);
       three.meshes.push(mesh);
     }
@@ -250,7 +253,7 @@ function setupTexture({ src, targets }) {
   const t = {
     targets, name: src.name, w: src.width, h: src.height, levels: src.levels,
     format: src.format, data: src.data, editable: src.editable && EDITABLE.includes(src.format),
-    fx: { ...DEFAULT_FX }, layers: [], dirty: false,
+    fx: { ...DEFAULT_FX }, patches: [], dirty: false,
   };
   if (!t.editable) return t;
   try {
@@ -284,68 +287,22 @@ function shade(hex, k) {
   return `rgb(${f(n >> 16 & 255)},${f(n >> 8 & 255)},${f(n & 255)})`;
 }
 
-// Draw a text layer in texture pixel space (caller sets any scale).
-function drawLayer(g, L) {
-  if (!L.text) return;
-  if (L.style === '3d' && drawLayer3d(g, L)) return;
-  g.save();
-  g.translate(L.x, L.y);
-  g.rotate((L.rot * Math.PI) / 180);
-  g.font = `900 ${L.size}px "${L.font}"`;
-  g.textAlign = 'center';
-  g.textBaseline = 'middle';
-  g.lineJoin = 'round';
-  const step = Math.max(0.5, L.size / 70);
-  for (let d = L.depth; d >= 1; d--) {
-    g.fillStyle = shade(L.side, 0.35 + 0.65 * (1 - d / (L.depth + 1)));
-    g.fillText(L.text, d * step * 0.8, d * step);
-  }
-  if (L.outline) {
-    g.lineWidth = L.outline * 2;
-    g.strokeStyle = L.stroke;
-    g.strokeText(L.text, 0, 0);
-  }
-  if (L.glow) { g.shadowColor = L.fill; g.shadowBlur = L.glow * (g.getTransform().a || 1); }
-  const grad = g.createLinearGradient(0, -L.size / 2, 0, L.size / 2);
-  grad.addColorStop(0, L.fill);
-  grad.addColorStop(1, shade(L.fill, 0.78));
-  g.fillStyle = grad;
-  g.fillText(L.text, 0, 0);
-  g.shadowBlur = 0;
-  L.bw = g.measureText(L.text).width; L.bh = L.size;
-  g.restore();
-}
-
-// 3D style: the lit 3D render, with the outline and glow around its shape.
-// Returns false (draw it flat for now) while its font is still loading.
-function drawLayer3d(g, L) {
-  const m = g.getTransform();
-  const k = Math.hypot(m.a, m.b) || 1; // texture px -> canvas px
-  const r = render3d(L, L.size * k);
-  if (!r) {
-    if (!fontReady(L.font) && !L._loading) {
-      L._loading = true;
-      loadFont(L.font).then(() => scheduleRender()).catch((e) => notify.error('Font not loaded', e.message)).finally(() => { L._loading = false; });
-    }
-    return false;
-  }
-  g.save();
-  g.translate(L.x, L.y);
-  g.rotate((L.rot * Math.PI) / 180);
-  const x = -r.ox / k, y = -r.oy / k, w = r.w / k, h = r.h / k;
-  if (L.outline) {
-    const sil = silhouette(r, L.stroke);
-    const o = L.outline;
-    for (let i = 0; i < 16; i++) {
-      const a = (i / 16) * Math.PI * 2;
-      g.drawImage(sil, x + Math.cos(a) * o, y + Math.sin(a) * o, w, h);
+// Colour patches for the 3D parts (texture pixel space; caller sets any scale).
+function drawPatches(g, t) {
+  for (const p of t.patches) {
+    if (p.image) {
+      g.fillStyle = p.fill || '#000';
+      g.fillRect(p.x, p.y, p.w, p.h);
+      const k = Math.max(p.w / p.image.width, p.h / p.image.height);
+      const w = p.image.width * k, h = p.image.height * k;
+      g.save(); g.beginPath(); g.rect(p.x, p.y, p.w, p.h); g.clip();
+      g.drawImage(p.image, p.x + (p.w - w) / 2, p.y + (p.h - h) / 2, w, h);
+      g.restore();
+    } else {
+      g.fillStyle = p.colour;
+      g.fillRect(p.x, p.y, p.w, p.h);
     }
   }
-  if (L.glow) { g.shadowColor = L.fill; g.shadowBlur = L.glow * k; }
-  g.drawImage(r.img, x, y, w, h);
-  g.restore();
-  L.bw = w; L.bh = h;
-  return true;
 }
 
 // Colour pass: full res + preview-sized copy. Only runs when fx change.
@@ -376,10 +333,10 @@ function compose(t) {
   g.setTransform(1, 0, 0, 1, 0, 0);
   g.drawImage(t.gradedSmall, 0, 0);
   g.setTransform(t.k, 0, 0, t.k, 0, 0);
-  t.layers.forEach((L) => drawLayer(g, L));
+  drawPatches(g, t);
   g.setTransform(1, 0, 0, 1, 0, 0);
   t.tex.needsUpdate = true;
-  t.dirty = t.layers.length > 0 || Object.keys(DEFAULT_FX).some((k) => t.fx[k] !== DEFAULT_FX[k]);
+  t.dirty = t.patches.length > 0 || Object.keys(DEFAULT_FX).some((k) => t.fx[k] !== DEFAULT_FX[k]);
   requestFrame();
 }
 
@@ -388,7 +345,7 @@ function composeFull(t) {
   const out = canvas(t.w, t.h);
   const g = out.getContext('2d');
   g.drawImage(t.graded, 0, 0);
-  t.layers.forEach((L) => drawLayer(g, L));
+  drawPatches(g, t);
   return out;
 }
 
@@ -429,7 +386,7 @@ function refreshDirtyMarks() {
   const n = textures.filter((t) => t.dirty).length;
   const html = `
     <div class="row"><span>Edited textures</span><b>${n} / ${textures.filter((t) => t.editable).length}</b></div>
-    <div class="row"><span>Text layers</span><b>${textures.reduce((s, t) => s + t.layers.length, 0)}</b></div>
+    <div class="row"><span>3D parts</span><b>${parts.filter((x) => x.at).length}</b></div>
     <div class="row"><span>Files updated</span><b>${new Set(textures.filter((t) => t.dirty).flatMap((t) => t.targets.map((x) => x.assetId))).size}</b></div>
     <div class="row"><span>Source</span><b>${esc(pack ? pack.file : '')}</b></div>`;
   if (html !== lastSum) { $('#export-sum').innerHTML = html; lastSum = html; }
@@ -451,10 +408,8 @@ function selectTexture(i) {
   if (!t) return;
   if (!t.editable) notify.warning('Texture is locked', `${t.format} textures can be previewed by the game but not re-encoded here.`);
   selected = i;
-  selLayer = t.layers[t.layers.length - 1] || null;
   $$('#tex-list li').forEach((li) => li.classList.toggle('on', +li.dataset.i === i));
   syncFxControls();
-  renderLayers();
   updateMaterials();
   sizeViewCanvas();
   paintTexView();
@@ -489,88 +444,285 @@ function editable() {
   return t;
 }
 
-// ---------- UI: text layers ----------
-function newLayer(t) {
-  return {
-    id: layerSeq++, text: 'KT', font: 'Impact', size: Math.round(t.h / 9), depth: 8, rot: 0, outline: 2, glow: 0,
-    fill: '#ffffff', side: '#3a3a3a', stroke: '#000000', x: t.w / 2, y: t.h / 2,
-    style: '3d', depth3d: 30, bevel: 4, tiltX: -18, tiltY: 22, light: -35, finish: 'metal',
-  };
-}
+// ---------- 3D parts (text, chains) ----------
+const TEXT_DEFAULT = { text: 'KT', font: 'Impact', size: 1.6, depth: 2.5, bevel: 8, rot: 0, lift: 0, front: '#ffffff', side: '#1a1a1a', finish: 'chrome' };
+const CHAIN_DEFAULT = { links: 9, linkSize: 3.5, linkThick: 24, colour: '#d9b44a', finish: 'chrome', pendant: 'logo', shape: 'circle', pendantText: 'KT', pendantSize: 3, rim: '#d9b44a', logo: null, font: 'Impact' };
+const UNITS = { size: ' cm', depth: ' mm', bevel: '%', rot: '°', lift: ' mm', links: '', linkSize: ' mm', linkThick: '%', pendantSize: ' cm' };
 
-function renderLayers() {
-  const t = textures[selected];
-  const list = $('#layer-list');
-  const layers = t ? t.layers : [];
-  list.innerHTML = layers.length
-    ? layers.map((L) => `<li data-id="${L.id}" class="${selLayer && selLayer.id === L.id ? 'on' : ''}">${icon('type')}<span>${esc(L.text || '(empty)')}</span><small>${L.font}</small></li>`).join('')
-    : '<li class="empty">No text yet</li>';
-  $$('li[data-id]', list).forEach((li) => (li.onclick = () => { selLayer = layers.find((L) => L.id === +li.dataset.id); renderLayers(); paintTexView(); }));
-  const ed = $('#layer-editor');
-  ed.classList.toggle('hidden', !selLayer);
-  if (selLayer) {
-    const sz = $('[data-tx=size]', ed);
-    sz.max = Math.max(400, Math.round(t.h / 2));
-    $$('[data-tx]', ed).forEach((el) => { el.value = selLayer[el.dataset.tx]; if (el.type === 'range') fillRange(el); });
-    $$('[data-tx-seg]', ed).forEach((sg) => {
-      $$('button', sg).forEach((b) => b.classList.toggle('on', b.dataset.v === selLayer[sg.dataset.txSeg]));
+function editorFor(kind) { return $(kind === 'text' ? '#text-editor' : '#chain-editor'); }
+
+function renderParts() {
+  for (const kind of ['text', 'chain']) {
+    const list = $('#' + kind + '-list');
+    const mine = parts.filter((x) => x.kind === kind);
+    list.innerHTML = mine.length
+      ? mine.map((x) => `<li data-id="${x.id}" class="${selPart === x ? 'on' : ''}">${icon(kind === 'text' ? 'type' : 'link')}<span>${esc(kind === 'text' ? x.text || '(empty)' : x.links + ' links' + (x.pendant !== 'none' ? ' + ' + x.pendant : ''))}</span><small>${x.at ? 'on gun' : 'not placed'}</small></li>`).join('')
+      : `<li class="empty">${kind === 'text' ? 'No text yet' : 'No chain yet'}</li>`;
+    $$('li[data-id]', list).forEach((li) => (li.onclick = () => { selPart = parts.find((x) => x.id === +li.dataset.id); renderParts(); }));
+    const ed = editorFor(kind);
+    const on = selPart && selPart.kind === kind;
+    ed.classList.toggle('hidden', !on);
+    if (!on) continue;
+    $$('[data-p]', ed).forEach((el) => { el.value = selPart[el.dataset.p]; if (el.type === 'range') fillRange(el); });
+    $$('[data-p-seg]', ed).forEach((sg) => {
+      $$('button', sg).forEach((b) => b.classList.toggle('on', b.dataset.v === selPart[sg.dataset.pSeg]));
       requestAnimationFrame(() => syncSeg(sg));
     });
-    syncLayerStyle();
-    syncLayerLabels();
+    if (kind === 'chain') {
+      $('.pend-logo', ed).classList.toggle('hidden', selPart.pendant !== 'logo');
+      $('.pend-text', ed).classList.toggle('hidden', selPart.pendant !== 'text');
+      $('.pend-any', ed).classList.toggle('hidden', selPart.pendant === 'none');
+      requestAnimationFrame(() => $$('.pend-logo [data-p-seg]', ed).forEach(syncSeg));
+    }
+    syncPartLabels(ed);
+  }
+  refreshDirtyMarks();
+}
+
+function syncPartLabels(ed) {
+  $$('[data-po]', ed).forEach((b) => { b.textContent = selPart[b.dataset.po] + (UNITS[b.dataset.po] || ''); });
+}
+
+function setPlacing(part) {
+  placing = part;
+  $('#place-hint').classList.toggle('hidden', !part);
+  $('#viewport').classList.toggle('placing', !!part);
+  if (part) {
+    $('#place-hint span').textContent = part.kind === 'text' ? 'Click on the gun where the text goes' : 'Click on the gun where the chain hangs from';
+    three.controls.autoRotate = false; $('#view-spin').classList.remove('on'); switchView('3d');
   }
 }
 
-function syncLayerStyle() {
-  const is3d = selLayer && selLayer.style === '3d';
-  $$('.tx-3d').forEach((el) => el.classList.toggle('hidden', !is3d));
-  $$('.tx-flat').forEach((el) => el.classList.toggle('hidden', is3d));
-  if (is3d) requestAnimationFrame(() => $$('.tx-3d [data-tx-seg]').forEach(syncSeg));
+function placePartAt(hit) {
+  if (!placing) return;
+  const mesh = hit.object;
+  const local = mesh.worldToLocal(hit.point.clone());
+  const n = hit.face ? hit.face.normal.clone().normalize() : new THREE.Vector3(0, 0, 1);
+  placing.at = { mesh: three.meshes.indexOf(mesh), point: local.toArray(), normal: n.toArray(), uv: hit.uv ? [hit.uv.x, hit.uv.y] : [0.5, 0.5] };
+  const p = placing;
+  setPlacing(null);
+  rebuildParts();
+  renderParts();
+  notify.success(p.kind === 'text' ? 'Text added' : 'Chain added', 'It is part of the gun\'s model now.');
 }
 
-function syncLayerLabels() {
-  if (!selLayer) return;
-  $('[data-txo=size]').textContent = selLayer.size + 'px';
-  $('[data-txo=depth]').textContent = selLayer.depth;
-  $('[data-txo=depth3d]').textContent = selLayer.depth3d + '%';
-  $('[data-txo=bevel]').textContent = selLayer.bevel;
-  $('[data-txo=tiltX]').textContent = selLayer.tiltX + '°';
-  $('[data-txo=tiltY]').textContent = selLayer.tiltY + '°';
-  $('[data-txo=light]').textContent = selLayer.light + '°';
-  $('[data-txo=rot]').textContent = selLayer.rot + '°';
-  $('[data-txo=outline]').textContent = selLayer.outline;
-  $('[data-txo=glow]').textContent = selLayer.glow;
+function addPart(kind) {
+  if (!uniqueMeshes().length) return notify.info('No 3D model in this file', 'Open the weapon\'s .rpf or .ydr to add 3D parts.');
+  const p = { id: partSeq++, kind, ...(kind === 'text' ? TEXT_DEFAULT : CHAIN_DEFAULT), at: null };
+  parts.push(p);
+  selPart = p;
+  renderParts();
+  setPlacing(p);
 }
 
-function setPlacing(on) {
-  placing = on;
-  $('#place-hint').classList.toggle('hidden', !on);
-  $('#viewport').classList.toggle('placing', on);
-  $('#text-place').classList.toggle('primary', on);
-  $('#text-place').classList.toggle('ghost', !on);
-  if (on) { three.controls.autoRotate = false; $('#view-spin').classList.remove('on'); switchView('3d'); }
+function clearParts() {
+  for (const p of parts) disposePart(p);
+  parts = []; selPart = null; placing = null;
+  if (three.meshes) three.meshes.forEach((m) => m.children.slice().forEach((c) => m.remove(c)));
+  textures.forEach((t) => { t.patches = []; });
 }
 
-function placeLayerAt(texIdx, uv) {
+function disposePart(p) {
+  if (p.obj) { p.obj.parent && p.obj.parent.remove(p.obj); p.obj.geometry.dispose(); p.obj.material.dispose(); p.obj = null; }
+  p.baked = null;
+}
+
+// Texture of the gun part a 3D part sits on, plus its normal / specular maps (by name).
+function texturesFor(texIdx) {
   const t = textures[texIdx];
-  if (!t || !t.editable) return notify.warning('Can\'t place there', 'That part of the gun uses a locked texture.');
-  if (!selLayer) return;
-  const from = textures.find((x) => x.layers.includes(selLayer));
-  if (from && from !== t) {
-    from.layers = from.layers.filter((L) => L !== selLayer);
-    compose(from);
-    t.layers.push(selLayer);
-  }
-  const u = ((uv.x % 1) + 1) % 1, v = ((uv.y % 1) + 1) % 1;
-  selLayer.x = Math.round(u * t.w);
-  selLayer.y = Math.round(v * t.h);
-  if (texIdx !== selected) selectTexture(texIdx);
-  setPlacing(false);
-  scheduleRender();
-  renderLayers();
-  notify.success('Text placed', `"${selLayer.text}" stamped onto ${t.name}.`);
+  if (!t || !t.editable) return null;
+  const base = t.name.toLowerCase();
+  const find = (suffixes) => textures.find((x) => x.editable && suffixes.some((s) => x.name.toLowerCase() === base + s));
+  return { t, n: find(['_n', '_nm', '_normal']), s: find(['_s', '_spec']) };
 }
 
+function coverageFor(texIdx) {
+  const t = textures[texIdx];
+  if (!t.cov) {
+    const meshes = three.meshes.filter((m) => m.userData.texIdx === texIdx && m.userData.src).map((m) => m.userData.src);
+    t.cov = GP.coverage(t.w, t.h, meshes);
+  }
+  return { W: t.cov.W, H: t.cov.H, used: new Uint8Array(t.cov.used) };
+}
+
+const rebuildSoon = debounce(() => rebuildParts(), 60);
+
+/** Lay out the colour patches and rebuild every placed part's mesh. */
+function rebuildParts() {
+  const touched = new Set();
+  textures.forEach((t) => { if (t.patches.length) touched.add(t); t.patches = []; });
+  const alloc = new Map(); // texIdx -> { cov, keys: Map(key -> rect) }
+  let missing = false;
+  for (const p of parts) {
+    if (!p.at) continue;
+    const mesh = three.meshes[p.at.mesh];
+    if (!mesh) continue;
+    const texIdx = mesh.userData.texIdx;
+    const maps = texIdx !== undefined ? texturesFor(texIdx) : null;
+    let A = null;
+    if (maps) {
+      if (!alloc.has(texIdx)) alloc.set(texIdx, { cov: coverageFor(texIdx), keys: new Map() });
+      A = alloc.get(texIdx);
+    }
+    const fin = GP.FINISH[p.finish] || GP.FINISH.metal;
+    const patch = (key, size, paint) => {
+      if (!A) return null;
+      if (!A.keys.has(key)) {
+        let r = null;
+        for (let s = size; !r && s >= 2; s >>= 1) r = GP.takeSquare(A.cov, Math.min(s, A.cov.W, A.cov.H));
+        A.keys.set(key, r);
+        if (r) {
+          maps.t.patches.push({ ...r, ...paint });
+          const scaled = (tx) => ({ x: Math.round(r.x * tx.w / maps.t.w), y: Math.round(r.y * tx.h / maps.t.h), w: Math.max(1, Math.round(r.w * tx.w / maps.t.w)), h: Math.max(1, Math.round(r.h * tx.h / maps.t.h)) });
+          if (maps.n) maps.n.patches.push({ ...scaled(maps.n), colour: '#8080ff' });
+          if (maps.s) maps.s.patches.push({ ...scaled(maps.s), colour: fin.spec });
+        } else missing = true;
+      }
+      const r = A.keys.get(key);
+      if (!r) return null;
+      const t = maps.t, inset = Math.min(2, r.w / 8);
+      return { u0: (r.x + inset) / t.w, v0: (r.y + inset) / t.h, u1: (r.x + r.w - inset) / t.w, v1: (r.y + r.h - inset) / t.h };
+    };
+    const colourPatch = (hex) => patch('c' + hex + p.finish, 8, { colour: hex });
+    let geo, matrix;
+    const font = fontReady(p.font);
+    const needsFont = p.kind === 'text' || p.pendant === 'text';
+    if (needsFont && !font) {
+      loadFont(p.font).then(() => rebuildParts()).catch((e) => notify.error('Font not loaded', e.message));
+      continue;
+    }
+    try {
+      if (p.kind === 'text') {
+        geo = GP.textGeometry(p, font);
+        const n = new THREE.Vector3(...p.at.normal);
+        const pos = new THREE.Vector3(...p.at.point).add(n.clone().multiplyScalar(p.lift / 1000 - 0.0002));
+        matrix = GP.surfaceBasis(p.at.normal, p.rot).setPosition(pos);
+      } else {
+        geo = GP.chainGeometry(p, font);
+        matrix = GP.chainPlacement(p.at.point, p.at.normal);
+      }
+    } catch (e) { notify.error('Could not build this part', e.message); continue; }
+    const roles = {
+      0: () => colourPatch(p.front), 1: () => colourPatch(p.side), 2: () => colourPatch(p.colour), 3: () => colourPatch(p.rim),
+      4: () => (p.logo ? patch('logo' + p.id, 32, { image: p.logo.img, fill: p.rim }) : colourPatch(p.rim)),
+    };
+    const cache = {};
+    const baked = GP.bake(geo, matrix, (role) => (role in cache ? cache[role] : (cache[role] = roles[role]())), p.at.uv);
+    geo.dispose();
+    if (p.obj) { p.obj.parent && p.obj.parent.remove(p.obj); p.obj.geometry.dispose(); }
+    const t = maps ? maps.t : null;
+    if (!p.obj) p.obj = new THREE.Mesh(baked, new THREE.MeshStandardMaterial({ side: THREE.DoubleSide }));
+    p.obj.geometry = baked;
+    // the preview room is dark, so full metal would look black: tone it down a little
+    Object.assign(p.obj.material, { map: t ? t.tex : null, color: new THREE.Color(t ? 0xffffff : p.kind === 'text' ? p.front : p.colour), metalness: fin.metalness * 0.55, roughness: Math.max(0.25, fin.roughness) });
+    p.obj.material.needsUpdate = true;
+    mesh.add(p.obj);
+    p.baked = baked;
+    if (t) touched.add(t);
+    if (maps && maps.n) touched.add(maps.n);
+    if (maps && maps.s) touched.add(maps.s);
+  }
+  for (const t of touched) { if (t.editable && t.preview) compose(t); }
+  if (missing && !rebuildParts.warned) { rebuildParts.warned = true; notify.warning('Not much room on this texture', 'Some parts use the gun\'s own colours.'); }
+  paintTexView();
+  requestFrame();
+  idleRefresh();
+}
+
+/** For each drawable in the file: the geometry each part goes into, with the part's data. */
+function partExports() {
+  const out = [];
+  for (const p of parts) {
+    if (!p.at || !p.baked) continue;
+    const src = three.meshes[p.at.mesh] && three.meshes[p.at.mesh].userData.src;
+    if (!src) continue;
+    const point = p.at.point;
+    const g = p.baked;
+    const data = {
+      positions: g.attributes.position.array, normals: g.attributes.normal.array, uvs: g.attributes.uv.array,
+      indices: Uint32Array.from(g.index.array),
+    };
+    for (const a of pack.assets) {
+      if (a.ext !== '.ydr' || !a.meshes || !a.meshes.length) continue;
+      // the same model part in this file (the _hi copy has the same bones and textures)
+      let target = a.meshes.includes(src) ? src : null;
+      if (!target) {
+        const same = a.meshes.filter((m) => m.binding === src.binding && String(m.textures) === String(src.textures));
+        let best = Infinity;
+        for (const m of same) { const d = nearest(m.positions, point).d; if (d < best) { best = d; target = m; } }
+        if (target && best > 0.05) target = null; // nothing of that part near the spot
+      }
+      if (!target) continue;
+      out.push({ assetId: a.id, lod: target.lod, model: target.model, geometry: target.geometry, template: nearest(target.positions, point).i, ...data });
+    }
+  }
+  return out;
+}
+
+function nearest(pos, p) {
+  let best = Infinity, bi = 0;
+  for (let i = 0; i < pos.length; i += 3) {
+    const d = (pos[i] - p[0]) ** 2 + (pos[i + 1] - p[1]) ** 2 + (pos[i + 2] - p[2]) ** 2;
+    if (d < best) { best = d; bi = i / 3; }
+  }
+  return { i: bi, d: Math.sqrt(best) };
+}
+
+function initParts() {
+  $('#text-add').onclick = () => addPart('text');
+  $('#chain-add').onclick = () => addPart('chain');
+  for (const kind of ['text', 'chain']) {
+    const ed = editorFor(kind);
+    $$('[data-p]', ed).forEach((el) => el.addEventListener('input', () => {
+      if (!selPart) return;
+      selPart[el.dataset.p] = el.type === 'range' ? +el.value : el.value;
+      syncPartLabels(ed);
+      if (el.dataset.p === 'text' || el.dataset.p === 'pendantText') {
+        const li = $(`#${kind}-list li[data-id="${selPart.id}"] span`);
+        if (li && kind === 'text') li.textContent = selPart.text || '(empty)';
+      }
+      rebuildSoon();
+    }));
+    $$('[data-p-seg]', ed).forEach((sg) => $$('button', sg).forEach((b) => (b.onclick = () => {
+      if (!selPart) return;
+      selPart[sg.dataset.pSeg] = b.dataset.v;
+      renderParts();
+      rebuildParts();
+    })));
+    $('[data-act=place]', ed).onclick = () => { if (selPart) setPlacing(placing ? null : selPart); };
+    $('[data-act=delete]', ed).onclick = () => {
+      if (!selPart) return;
+      disposePart(selPart);
+      parts = parts.filter((x) => x !== selPart);
+      selPart = parts.filter((x) => x.kind === kind).pop() || null;
+      if (placing && !parts.includes(placing)) setPlacing(null);
+      rebuildParts();
+      renderParts();
+    };
+  }
+  $('#text-editor [data-act=font]').onclick = async () => {
+    const f = await api.call('gun:pickFont').catch((e) => { notify.error('Could not load font', e.message); return null; });
+    if (!f || !selPart) return;
+    try { addFont(f.name, f.data); } catch (e) { return notify.error('Could not read that font', 'Pick a .ttf or .otf file.'); }
+    const sel = $('#text-editor [data-p=font]');
+    if (![...sel.options].some((o) => o.value === f.name)) sel.add(new Option(f.name, f.name));
+    selPart.font = f.name;
+    renderParts();
+    rebuildParts();
+  };
+  $('#chain-editor [data-act=logo]').onclick = async () => {
+    const r = await api.call('gfx:pickImage').catch((e) => { notify.error('Could not open image', e.message); return null; });
+    if (!r || !selPart) return;
+    const img = new Image();
+    img.src = 'data:' + r.mediaType + ';base64,' + r.data;
+    await img.decode().catch(() => null);
+    selPart.logo = { name: r.name, img };
+    selPart.pendant = 'logo';
+    renderParts();
+    rebuildParts();
+  };
+  renderParts();
+}
 // ---------- 2D view ----------
 // The view canvas is sized to its on-screen pixels, not the texture.
 const view = { scale: 1 };
@@ -599,46 +751,6 @@ function paintTexView() {
   g.clearRect(0, 0, c.width, c.height);
   if (!t || !t.preview) return;
   g.drawImage(t.preview, 0, 0, c.width, c.height);
-  if (selLayer && t.layers.includes(selLayer) && selLayer.bw) {
-    g.setTransform(view.scale, 0, 0, view.scale, 0, 0);
-    g.translate(selLayer.x, selLayer.y);
-    g.rotate((selLayer.rot * Math.PI) / 180);
-    g.strokeStyle = '#fff';
-    g.lineWidth = 1.5 / view.scale;
-    g.setLineDash([6 / view.scale, 4 / view.scale]);
-    g.strokeRect(-selLayer.bw / 2 - 8, -selLayer.bh / 2 - 4, selLayer.bw + 16, selLayer.bh + 8);
-    g.setTransform(1, 0, 0, 1, 0, 0);
-  }
-}
-
-function initTexViewDrag() {
-  const c = $('#tex-canvas');
-  let drag = null;
-  const toTex = (e) => {
-    const t = textures[selected];
-    const r = c.getBoundingClientRect();
-    return { x: ((e.clientX - r.left) / r.width) * t.w, y: ((e.clientY - r.top) / r.height) * t.h };
-  };
-  c.addEventListener('pointerdown', (e) => {
-    const t = textures[selected];
-    if (!t || !t.editable) return;
-    const p = toTex(e);
-    const hit = [...t.layers].reverse().find((L) => Math.abs(p.x - L.x) < (L.bw || 100) / 2 + 10 && Math.abs(p.y - L.y) < (L.bh || 50) / 2 + 10);
-    if (hit && hit !== selLayer) { selLayer = hit; renderLayers(); }
-    if (!selLayer || !t.layers.includes(selLayer)) return;
-    drag = { dx: p.x - selLayer.x, dy: p.y - selLayer.y };
-    c.setPointerCapture(e.pointerId);
-  });
-  c.addEventListener('pointermove', (e) => {
-    if (!drag) return;
-    const p = toTex(e);
-    selLayer.x = Math.round(p.x - drag.dx);
-    selLayer.y = Math.round(p.y - drag.dy);
-    scheduleRender();
-  });
-  const end = () => { drag = null; };
-  c.addEventListener('pointerup', end);
-  c.addEventListener('pointercancel', end);
 }
 
 function switchView(v) {
@@ -670,9 +782,10 @@ export async function openGunFile(path) {
   textures = groupTextures().map(setupTexture);
   selected = textures.findIndex((t) => t.editable && !AUX.test(t.name));
   if (selected < 0) selected = Math.max(0, textures.findIndex((t) => t.editable));
-  selLayer = null;
+  clearParts();
   $('#gun-empty').classList.add('hidden');
   $('#gun-lab').classList.remove('hidden');
+  pack.assets.forEach((a) => (a.meshes || []).forEach((m) => { m.assetId = a.id; }));
   if (!three.renderer) initThree();
   switchView('3d');
   fitViewport();
@@ -698,12 +811,12 @@ function disposeTextures() {
 }
 
 function closeFile() {
+  clearParts();
   disposeTextures();
   pack = null;
   textures = [];
   if (three.group) three.group.clear();
   three.meshes = [];
-  setPlacing(false);
   $('#gun-lab').classList.add('hidden');
   $('#gun-empty').classList.remove('hidden');
 }
@@ -746,7 +859,9 @@ function buildLevels(t) {
 
 async function doExport(opts, btn) {
   const dirty = textures.filter((t) => t.dirty && t.editable);
-  if (!dirty.length) return notify.info('Nothing to export yet', 'Change a colour or add some text first.');
+  const geometry = partExports();
+  if (parts.some((x) => x.at) && !geometry.length) return notify.error('Could not add the 3D parts', 'No model part in this file matches where they were placed.');
+  if (!dirty.length && !geometry.length) return notify.info('Nothing to export yet', 'Change a colour or add text or a chain first.');
   busy(btn, true);
   const h = notify({ type: 'loading', title: 'Encoding textures…', message: `0 / ${dirty.length}` });
   try {
@@ -760,7 +875,7 @@ async function doExport(opts, btn) {
       h.update({ type: 'loading', title: 'Encoding textures…', message: `${i + 1} / ${dirty.length} · ${t.name}` });
     }
     h.update({ type: 'loading', title: 'Packing archive…', message: 'Compressing and writing' });
-    const r = await api.call('gun:export', edits, opts);
+    const r = await api.call('gun:export', edits, opts, geometry);
     if (!r) { h.close(); busy(btn, false); return; }
     h.update({
       type: 'success',
@@ -775,20 +890,16 @@ async function doExport(opts, btn) {
   busy(btn, false);
 }
 
-// Dev-only timing probe (used by the KT_SHOT harness): ms per text-drag frame
-// and per colour-slider frame, including the GPU texture upload.
+// Dev-only timing probe (used by the KT_SHOT harness): ms per colour-slider
+// frame, including the GPU texture upload.
 export function perfProbe() {
   const t = textures[selected];
   if (!t || !t.editable) return null;
-  if (!selLayer) { selLayer = newLayer(t); t.layers.push(selLayer); }
   const frame = () => three.renderer.render(three.scene, three.camera);
-  let t0 = performance.now();
-  for (let i = 0; i < 60; i++) { selLayer.x += 3; compose(t); paintTexView(); frame(); }
-  const drag = (performance.now() - t0) / 60;
-  t0 = performance.now();
+  const t0 = performance.now();
   for (let i = 0; i < 20; i++) { t.fx.hue = i * 5; regrade(t); compose(t); paintTexView(); frame(); }
   const grade = (performance.now() - t0) / 20;
-  return { texture: t.w + 'x' + t.h, dragMs: +drag.toFixed(2), gradeMs: +grade.toFixed(2) };
+  return { texture: t.w + 'x' + t.h, gradeMs: +grade.toFixed(2) };
 }
 
 // ---------- init ----------
@@ -839,58 +950,7 @@ export function initGunLab() {
   }));
   $$('.vt').forEach((b) => (b.onclick = () => switchView(b.dataset.view)));
 
-  // Text layers
-  $('#text-add').onclick = () => {
-    const t = editable(); if (!t) return;
-    const L = newLayer(t);
-    t.layers.push(L);
-    selLayer = L;
-    renderLayers();
-    scheduleRender();
-    const f = $('[data-tx=text]'); f.focus(); f.select();
-  };
-  $$('[data-tx]').forEach((el) => el.addEventListener('input', () => {
-    if (!selLayer) return;
-    selLayer[el.dataset.tx] = el.type === 'range' ? +el.value : el.value;
-    syncLayerLabels();
-    if (el.dataset.tx === 'text' || el.dataset.tx === 'font') {
-      const li = $(`#layer-list li[data-id="${selLayer.id}"]`);
-      if (li) { $('span', li).textContent = selLayer.text || '(empty)'; $('small', li).textContent = selLayer.font; }
-    }
-    scheduleRender();
-  }));
-  $$('[data-tx-seg]').forEach((sg) => $$('button', sg).forEach((b) => (b.onclick = () => {
-    if (!selLayer) return;
-    selLayer[sg.dataset.txSeg] = b.dataset.v;
-    $$('button', sg).forEach((x) => x.classList.toggle('on', x === b));
-    syncSeg(sg);
-    if (sg.dataset.txSeg === 'style') syncLayerStyle();
-    scheduleRender();
-  })));
-  $('#text-font-load').onclick = async () => {
-    const f = await api.call('gun:pickFont').catch((e) => { notify.error('Could not load font', e.message); return null; });
-    if (!f) return;
-    try { addFont(f.name, f.data); } catch (e) { return notify.error('Could not read that font', 'Pick a .ttf or .otf file.'); }
-    try { const face = new FontFace(f.name, f.data); await face.load(); document.fonts.add(face); } catch (e) { /* 3D still works */ }
-    const sel = $('[data-tx=font]');
-    if (![...sel.options].some((o) => o.value === f.name)) sel.add(new Option(f.name, f.name));
-    sel.value = f.name;
-    sel.dispatchEvent(new Event('input'));
-    notify.success('Font loaded', f.name + ' is ready for your text.');
-  };
-  $('#text-del').onclick = () => {
-    const t = textures[selected];
-    if (!t || !selLayer) return;
-    t.layers = t.layers.filter((L) => L !== selLayer);
-    selLayer = t.layers[t.layers.length - 1] || null;
-    renderLayers();
-    scheduleRender();
-  };
-  $('#text-place').onclick = () => {
-    if (!selLayer) return;
-    if (!uniqueMeshes().length) return notify.info('No 3D model', 'Drag the text in the Texture view instead.');
-    setPlacing(!placing);
-  };
+  initParts();
 
   // View tools
   $('#view-spin').classList.add('on');
@@ -909,6 +969,5 @@ export function initGunLab() {
   $('#export-save').onclick = (e) => doExport({}, e.currentTarget);
   $('#export-mods').onclick = (e) => doExport({ toMods: true }, e.currentTarget);
 
-  initTexViewDrag();
-  addEventListener('keydown', (e) => { if (e.key === 'Escape' && placing) setPlacing(false); });
+  addEventListener('keydown', (e) => { if (e.key === 'Escape' && placing) setPlacing(null); });
 }

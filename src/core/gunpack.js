@@ -1,6 +1,7 @@
 'use strict';
 // Gun pack session: open an .rpf (or loose .ytd/.ydr), list textures and
-// meshes, patch edited texture bytes back in, and write a new archive.
+// meshes, patch edited texture bytes back in, add 3D parts to the models, and
+// write a new archive.
 
 const fs = require('fs');
 const path = require('path');
@@ -8,6 +9,7 @@ const rpf = require('./rpf');
 const { decodeResource, encodeResource, ResView } = require('./rsc');
 const { parseTextureDictionary } = require('./ytd');
 const { parseDrawable } = require('./ydr');
+const { addGeometry } = require('./ydrwrite');
 
 class GunPack {
   constructor(filePath) {
@@ -54,7 +56,7 @@ class GunPack {
     let res;
     try { res = decodeResource(stored, sysFlags, gfxFlags); } catch (e) { return; }
     const v = new ResView(res);
-    const asset = { id: this.assets.length, path: p, ext, entry, res, textures: [], meshes: [], warnings: [] };
+    const asset = { id: this.assets.length, path: p, ext, entry, res, stored, sysFlags, gfxFlags, textures: [], meshes: [], warnings: [] };
     try {
       if (ext === '.ytd') {
         asset.textures = parseTextureDictionary(v, 0);
@@ -95,9 +97,15 @@ class GunPack {
     };
   }
 
-  /** edits: [{ assetId, textureIndex, data:Uint8Array }] */
-  applyEdits(edits) {
-    const touched = new Set();
+  /** edits: [{ assetId, textureIndex, data:Uint8Array }]
+   *  geometry: [{ assetId, lod, model, geometry, template, positions, normals, uvs, indices }]
+   *  Always starts from the file as it was opened, so exporting twice gives the same result. */
+  applyEdits(edits, geometry = []) {
+    const touched = new Set([...edits.map((e) => this.assets[e.assetId]), ...geometry.map((g) => this.assets[g.assetId])].filter(Boolean));
+    for (const a of touched) {
+      a.res = decodeResource(a.stored, a.sysFlags, a.gfxFlags);
+      if (a.entry) { a.entry.stored = a.stored; a.entry.gfxFlags = a.gfxFlags; }
+    }
     for (const ed of edits) {
       const a = this.assets[ed.assetId];
       if (!a) throw new Error('Unknown asset ' + ed.assetId);
@@ -107,7 +115,18 @@ class GunPack {
         throw new Error('Encoded size mismatch for ' + t.name + ' (' + ed.data.length + ' vs ' + t.dataSize + ')');
       }
       Buffer.from(ed.data.buffer, ed.data.byteOffset, ed.data.byteLength).copy(a.res.data, t.dataOffset);
-      touched.add(a);
+    }
+    // 3D parts last: adding geometry re-lays out the graphics pages (texture data moves)
+    const byAsset = new Map();
+    for (const g of geometry) {
+      const a = this.assets[g.assetId];
+      if (!a || a.ext !== '.ydr') throw new Error('3D parts can only go into a .ydr model.');
+      if (!byAsset.has(a)) byAsset.set(a, []);
+      byAsset.get(a).push({ ...g, positions: Float32Array.from(g.positions), normals: Float32Array.from(g.normals), uvs: Float32Array.from(g.uvs), indices: Uint32Array.from(g.indices) });
+    }
+    for (const [a, list] of byAsset) {
+      addGeometry(a.res, list);
+      if (a.entry) a.entry.gfxFlags = a.res.gfxFlags;
     }
     for (const a of touched) {
       const stored = encodeResource(a.res);

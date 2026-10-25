@@ -104,8 +104,10 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
 
 .page-head { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 28px; gap: 20px; }
 .eyebrow { font-size: 11px; font-weight: 700; letter-spacing: .35em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 10px; }
-.headline { font-size: 46px; font-weight: 800; letter-spacing: -.035em; line-height: 1; }
-.outline { color: transparent; -webkit-text-stroke: 1.2px rgba(255,255,255,.85); }
+.headline { font-size: 46px; font-weight: 800; letter-spacing: -.035em; line-height: 1.08; padding-bottom: .04em; }
+/* Outline traced around the letter shapes (SVG filter in index.html). -webkit-text-stroke would
+   also draw the font's overlapping inner contours, which shows as lines through the letters. */
+.outline { color: #fff; filter: url(#kt-outline); display: inline-block; padding: 0 .04em; letter-spacing: -.012em; }
 .head-actions { display: flex; gap: 10px; }
 
 /* reveal stagger */
@@ -128,11 +130,9 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
 .drop { display: flex; align-items: center; gap: 24px; grid-column: span 4; padding: 28px; border-style: dashed; border-color: var(--line-2); }
 .drop.over, .mini-drop.over, .gun-drop.over { border-color: #fff; background: rgba(255,255,255,.06); transform: scale(1.01); }
 .drop.ok { border-style: solid; }
-.drop-art { position: relative; width: 74px; height: 74px; display: grid; place-items: center; flex: none; }
-.drop-art .ring { position: absolute; inset: 0; border-radius: 50%; border: 1px solid var(--line-2); animation: orbit 6s linear infinite; border-top-color: #fff; }
-.drop-art .ring.r2 { inset: 10px; animation-direction: reverse; animation-duration: 4s; border-top-color: transparent; border-bottom-color: rgba(255,255,255,.6); }
+.drop-ic { width: 56px; height: 56px; border-radius: 16px; border: 1px solid var(--line-2); background: var(--glass-2); display: grid; place-items: center; flex: none; }
 @keyframes orbit { to { transform: rotate(360deg); } }
-.drop-art svg.ic { width: 26px; height: 26px; }
+.drop-ic svg.ic { width: 24px; height: 24px; }
 .drop-text { flex: 1; min-width: 0; }
 .drop-text h3 { font-size: 20px; margin-bottom: 6px; }
 .drop-text p { color: var(--ink-3); font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -303,10 +303,10 @@ input[type=range]:active::-webkit-slider-thumb { transform: scale(.95); box-shad
 .place-hint { position: absolute; z-index: 3; bottom: 18px; left: 50%; transform: translateX(-50%); display: flex; gap: 10px; align-items: center; padding: 10px 18px; border-radius: 99px; background: #fff; color: #000; font-size: 13px; font-weight: 600; animation: hint 1.6s ease-in-out infinite; }
 @keyframes hint { 50% { box-shadow: 0 0 0 10px rgba(255,255,255,.12); } }
 
-.tabs { position: relative; display: grid; grid-template-columns: repeat(3, 1fr); padding: 4px; border-radius: 12px; background: rgba(0,0,0,.4); border: 1px solid var(--line); margin-bottom: 16px; flex: none; }
+.tabs { position: relative; display: grid; grid-template-columns: repeat(var(--tabs, 3), 1fr); padding: 4px; border-radius: 12px; background: rgba(0,0,0,.4); border: 1px solid var(--line); margin-bottom: 16px; flex: none; }
 .tab { position: relative; z-index: 1; height: 32px; font-size: 12.5px; font-weight: 700; color: var(--ink-3); transition: color .3s; }
 .tab.on { color: #000; }
-.tab-pill { position: absolute; top: 4px; bottom: 4px; left: 4px; width: calc((100% - 8px) / 3); border-radius: 9px; background: #fff; transition: transform .5s var(--spring); }
+.tab-pill { position: absolute; top: 4px; bottom: 4px; left: 4px; width: calc((100% - 8px) / var(--tabs, 3)); border-radius: 9px; background: #fff; transition: transform .5s var(--spring); }
 .tab-body { overflow-y: auto; flex: 1; padding-right: 4px; animation: rise .45s var(--ease) both; }
 .layer-list { list-style: none; display: grid; gap: 6px; margin: 12px 0 16px; }
 .layer-list li { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); cursor: pointer; font-size: 13px; transition: all .3s var(--ease); animation: rise .4s var(--ease) both; }
@@ -785,5 +785,49 @@ body.custom-bg #bg { display: none; }
 
 /* Gun Lab text: font picker row and the 3D text controls */
 .ctrl-row.tight.font-row { grid-template-columns: 1fr auto; align-items: end; gap: 8px; }
-.tx-3d { display: grid; gap: 4px; }
+#inspector-tabs { --tabs: 4; }
+.part-editor { display: grid; gap: 4px; margin-top: 10px; }
+.part-editor .field { margin-bottom: 8px; }
+.part-editor .seg { margin: 2px 0 12px; }
+.ctrl-row.tight.two { grid-template-columns: 1fr 1fr; }
 #layer-editor .seg { margin: 2px 0 12px; }
+
+/* ---------- menu motion ---------- */
+.nav-hover { position: absolute; left: 0; right: 0; top: 0; height: 40px; border-radius: 12px; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.06); opacity: 0; transition: transform .45s var(--spring), height .3s, opacity .25s; pointer-events: none; z-index: 0; }
+.nav-hover.on { opacity: 1; }
+#nav.intro a, #nav.intro .nav-sec { animation: navIn .7s var(--ease) both; animation-delay: calc(var(--n, 0) * 45ms + 150ms); }
+@keyframes navIn { from { opacity: 0; transform: translateX(-18px); filter: blur(4px); } }
+#nav a.pop svg.ic { animation: iconPop .55s var(--spring); }
+@keyframes iconPop { 0% { transform: scale(1); } 35% { transform: scale(1.35) rotate(-10deg); } 70% { transform: scale(.92) rotate(4deg); } 100% { transform: none; } }
+#nav a.active span { animation: navLabel .5s var(--ease); }
+@keyframes navLabel { from { letter-spacing: .06em; opacity: .4; } }
+.page.active .eyebrow { animation: eyebrowIn .7s var(--ease) both; }
+@keyframes eyebrowIn { from { opacity: 0; letter-spacing: .6em; } }
+.page.active .headline { animation: headIn .8s var(--ease) both .05s; }
+@keyframes headIn { from { clip-path: inset(-10% -5% 100% -5%); transform: translateY(14px); } to { clip-path: inset(-10% -5% -25% -5%); } }
+
+/* ---------- tutorial ---------- */
+.tour { position: fixed; inset: 0; z-index: 200; pointer-events: auto; opacity: 0; transition: opacity .35s var(--ease); }
+.tour.in { opacity: 1; }
+.tour.out { opacity: 0; pointer-events: none; }
+.tour-spot { position: fixed; border-radius: 16px; box-shadow: 0 0 0 9999px rgba(0,0,0,.72), 0 0 0 1px rgba(255,255,255,.5), 0 0 40px rgba(255,255,255,.18); transition: left .6s var(--spring), top .6s var(--spring), width .6s var(--spring), height .6s var(--spring); pointer-events: none; }
+.tour-card { position: fixed; left: 0; top: 0; width: 300px; padding: 18px; border-radius: 18px; background: #0b0b0b; border: 1px solid var(--line-2); box-shadow: 0 30px 80px rgba(0,0,0,.8); transition: transform .6s var(--spring); }
+.tour-card.swap .tour-title, .tour-card.swap .tour-text { animation: rise .45s var(--ease) both; }
+.tour-count { font-family: var(--mono); font-size: 10.5px; color: var(--ink-4); }
+.tour-title { display: block; font-size: 18px; font-weight: 800; letter-spacing: -.02em; margin: 6px 0 4px; }
+.tour-text { font-size: 13px; color: var(--ink-2); line-height: 1.5; margin-bottom: 16px; }
+.tour-foot { display: flex; align-items: center; gap: 8px; }
+.tour-dots { display: flex; gap: 5px; margin-right: auto; }
+.tour-dots i { width: 6px; height: 6px; border-radius: 99px; background: rgba(255,255,255,.2); transition: width .35s var(--ease), background .3s; }
+.tour-dots i.on { width: 18px; background: #fff; }
+
+/* lists show soft placeholders until their data arrives */
+.list li.skel { height: 58px; border-color: transparent; background: linear-gradient(90deg, rgba(255,255,255,.03) 25%, rgba(255,255,255,.07) 50%, rgba(255,255,255,.03) 75%) 0 0 / 300% 100%; animation: skel 1.2s linear infinite; }
+@keyframes skel { from { background-position: 100% 0; } to { background-position: -200% 0; } }
+
+/* settings: AI link */
+.setting.ai-link { display: grid; gap: 14px; align-items: stretch; }
+.ai-link-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.ai-link-head small { display: block; }
+.ai-link-fields { display: grid; grid-template-columns: 1.4fr 1fr .8fr; gap: 12px; }
+.ai-link-fields .field { margin: 0; }

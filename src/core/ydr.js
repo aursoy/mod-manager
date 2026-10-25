@@ -1,11 +1,12 @@
 'use strict';
-// Drawable (.ydr, gen8 PC) mesh extraction for preview purposes.
-// Read-only: geometry is never written back, only textures are.
+// Drawable (.ydr, gen8 PC) mesh extraction for the Gun Lab preview. Each mesh
+// says where it came from (LOD, model, geometry) so new parts can be written
+// into that geometry (ydrwrite.js).
 
 const { parseTextureDictionary } = require('./ytd');
 
 // Vertex component type -> byte size.
-const COMP_SIZE = [2, 4, 6, 8, 4, 8, 12, 16, 4, 4, 4, 0, 0, 0, 0, 0];
+const COMP_SIZE = [0, 4, 4, 8, 0, 8, 12, 16, 4, 4, 4, 0, 0, 0, 0, 0];
 // Semantic slots in declaration order.
 const SEM = { POS: 0, NORMAL: 3, UV0: 6 };
 
@@ -23,17 +24,13 @@ function readComp(v, o, type, n) {
   switch (type) {
     case 1: for (let i = 0; i < Math.min(n, 2); i++) out[i] = half(v.u16(o + i * 2)); break;
     case 3: for (let i = 0; i < Math.min(n, 4); i++) out[i] = half(v.u16(o + i * 2)); break;
-    case 4: out[0] = v.f32(o); break;
+    case 2: out[0] = v.f32(o); break;
     case 5: for (let i = 0; i < Math.min(n, 2); i++) out[i] = v.f32(o + i * 4); break;
     case 6: for (let i = 0; i < Math.min(n, 3); i++) out[i] = v.f32(o + i * 4); break;
     case 7: for (let i = 0; i < Math.min(n, 4); i++) out[i] = v.f32(o + i * 4); break;
-    case 10: {
-      // Packed signed normal (Dec3N style): 10/10/10.
-      const p = v.u32(o);
-      const c = (x) => { x &= 0x3ff; return (x & 0x200 ? x - 0x400 : x) / 511; };
-      out[0] = c(p); out[1] = c(p >> 10); out[2] = c(p >> 20);
+    case 10: // RGBA8 SNorm
+      for (let i = 0; i < Math.min(n, 4); i++) out[i] = Math.max(-1, v.d.readInt8(o + i) / 127);
       break;
-    }
     case 8: case 9:
       for (let i = 0; i < Math.min(n, 4); i++) out[i] = v.u8(o + i) / 255;
       break;
@@ -142,10 +139,10 @@ function parseDrawable(v, base = 0) {
   }
   const shTex = (() => { try { return shaderTextures(v, sgAbs); } catch (e) { return []; } })();
 
-  let modelsList = -1;
-  for (const lodOff of [0x50, 0x58, 0x60, 0x68]) {
+  let modelsList = -1, lodIndex = 0;
+  for (const [i, lodOff] of [0x50, 0x58, 0x60, 0x68].entries()) {
     const lod = v.at(base + lodOff);
-    if (lod >= 0) { modelsList = lod; break; }
+    if (lod >= 0) { modelsList = lod; lodIndex = i; break; }
   }
   if (modelsList < 0) { out.warnings.push('no LOD models'); return out; }
   const listAbs = v.at(modelsList);
@@ -165,7 +162,7 @@ function parseDrawable(v, base = 0) {
         const shaderIdx = mapAbs >= 0 ? v.u16(mapAbs + g * 2) : -1;
         const texNames = (shTex[shaderIdx] || []).filter(isDiffuseName);
         const geo = parseGeometry(v, gAbs, texNames);
-        if (geo) out.meshes.push(geo);
+        if (geo) out.meshes.push(Object.assign(geo, { lod: lodIndex, model: m, geometry: g, binding: v.u32(model + 0x28) }));
       } catch (e) {
         out.warnings.push('geometry ' + g + ' unreadable');
       }

@@ -12,4 +12,5 @@ contextBridge.exposeInMainWorld('api', {
   pathForFile: (file) => webUtils.getPathForFile(file),
   onWindowState: (fn) => ipcRenderer.on('win:state', (_e, s) => fn(s)),
   onKeyProgress: (fn) => ipcRenderer.on('keys:progress', (_e, p) => fn(p)),
+  onProfile: (fn) => ipcRenderer.on('profile:changed', () => fn()),
 });

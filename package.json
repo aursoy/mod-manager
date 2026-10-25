@@ -4,12 +4,14 @@
   "version": "1.2.0",
   "description": "Sleek FiveM citizen mod manager with a gun skin lab, sound pack maker, timecycle editor and graphics-pack AI.",
   "main": "main.js",
+  "discordAppId": "",
   "scripts": {
     "start": "electron .",
     "test": "node --test \"test/*.test.js\""
   },
   "license": "MIT",
   "dependencies": {
+    "@anthropic-ai/sdk": "1.3.0",
     "@fontsource-variable/inter": "5.1.0",
     "@fontsource/jetbrains-mono": "5.1.0",
     "adm-zip": "0.5.16",

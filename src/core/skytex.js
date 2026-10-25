@@ -13,12 +13,22 @@ const { parseTextureDictionary } = require('./ytd');
 /** Where the file goes in a pack when it did not come from one. */
 const DEFAULT_REL = 'platform/textures/skydome.ytd';
 
+/** Where the texture dictionary is inside a resource: a .ytd is one, a particle
+ *  file (.ypt, e.g. core.ypt with the blood sprays) and a model (.ydr) carry one. */
+function txdOffset(v, label) {
+  const ext = String(label).toLowerCase().split('.').pop();
+  if (ext === 'ypt') return v.at(0x20); // ptxFxList.TextureDictionary
+  if (ext === 'ydr') { const sg = v.at(0x10); return sg >= 0 ? v.at(sg + 0x08) : -1; } // ShaderGroup.TextureDictionary
+  return 0;
+}
+
 class YtdFile {
-  /** stored: the .ytd file bytes (RSC7 header + data). */
+  /** stored: the file bytes (RSC7 header + data): a .ytd, or a .ypt / .ydr with textures inside. */
   constructor(stored, label = 'skydome.ytd') {
     this.label = label;
     this.res = decodeResource(stored);
-    this.textures = parseTextureDictionary(new ResView(this.res), 0);
+    const v = new ResView(this.res);
+    this.textures = parseTextureDictionary(v, txdOffset(v, label));
     if (!this.textures.length) throw new Error(label + ' has no textures this app can read.');
   }
 
@@ -144,8 +154,9 @@ function findGtaDirs({ citizenPath = null, knownExe = null, exes = [] } = {}) {
   return out;
 }
 
-/** Every resource matching test(name) in an RPF tree, nested RPFs included. */
-function findAll(root, test, prefix = '') {
+/** Every resource matching test(name) in an RPF tree, nested RPFs included.
+ *  Nested archives that cannot be read are listed in `bad` (when given). */
+function findAll(root, test, prefix = '', bad = null) {
   const out = [];
   rpf.walk(root, (e, p) => {
     const full = prefix ? prefix + '/' + p : p;
@@ -153,21 +164,26 @@ function findAll(root, test, prefix = '') {
     if (e.type === 'bin' && /\.rpf$/i.test(e.name)) {
       try {
         e.nested = e.nested || rpf.readRpf(rpf.getBinaryData(e), e.name);
-        out.push(...findAll(e.nested, test, full));
-      } catch (err) { if (err.code === rpf.NEED_KEYS) throw err; }
+        out.push(...findAll(e.nested, test, full, bad));
+      } catch (err) { if (err.code === rpf.NEED_KEYS) throw err; if (bad) bad.push(full + ' (' + err.message + ')'); }
     }
   });
   return out;
 }
 
-/** Several texture dictionaries inside one RPF (e.g. all the cloud hats), edited in place. */
+/** Several texture dictionaries inside one RPF (e.g. all the cloud hats), edited in place.
+ *  `root` can be passed when the archive was already read. */
 class RpfTextures {
-  constructor(buf, label, test) {
+  constructor(buf, label, test, root = null) {
     this.label = label;
-    this.root = rpf.readRpf(buf, label);
-    this.hits = findAll(this.root, test);
+    this.root = root || rpf.readRpf(buf, label);
+    const hits = findAll(this.root, test);
+    this.hits = [];
+    this.ytds = [];
+    for (const h of hits) {
+      try { this.ytds.push(new YtdFile(h.entry.stored, h.entry.name)); this.hits.push(h); } catch (e) { /* no textures in it */ }
+    }
     if (!this.hits.length) throw new Error(label + ' has none of those textures.');
-    this.ytds = this.hits.map((h) => new YtdFile(h.entry.stored, h.entry.name));
     this.edited = false;
   }
 

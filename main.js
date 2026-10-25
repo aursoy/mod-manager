@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, safeStorage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { CitizenManager } = require('./src/core/citizen');
@@ -14,6 +14,8 @@ const { findGtaDirs, DEFAULT_REL: SKY_REL } = require('./src/core/skytex');
 const { openSkySource, skySources } = require('./src/core/skysource');
 const { listSources, openSource, openFiles } = require('./src/core/texsource');
 const { WorldFiles } = require('./src/core/worldfiles');
+const { askPackAi, isAnthropic, DEFAULT_ANTHROPIC_MODEL } = require('./src/core/packai');
+const { EditorPack } = require('./src/core/editorpack');
 const { readFileFrom } = require('./src/core/rpfscan');
 const { GtaKeys, findAesKey, findGtaExes } = require('./src/core/ngcrypto');
 
@@ -28,6 +30,9 @@ let sky = null;     // sky texture being replaced: { ytd, rel, label, out }
 const sounds = new SoundPack();
 const discord = new DiscordRpc();
 const startedAt = Date.now();
+// The app's own Discord application (discord.com/developers). With it set, everyone's
+// Discord profile shows up by itself; a player can also enter their own in the profile.
+const DISCORD_APP_ID = String(process.env.KT_DISCORD_APP_ID || require('./package.json').discordAppId || '');
 
 function createWindow() {
   win = new BrowserWindow({
@@ -44,6 +49,7 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
+      autoplayPolicy: 'no-user-gesture-required', // UI sounds play from the first click
     },
   });
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
@@ -69,7 +75,7 @@ function runShots(dir) {
     if (process.env.KT_CITIZEN) await js(`window.api.call('citizen:set', ${JSON.stringify(process.env.KT_CITIZEN)})`);
     await wait(800); await shot('0-splash');
     await wait(3200); await shot('1-home');
-    for (const p of (process.env.KT_PAGES || 'graphics,world,mods,presets,cache,backups,settings').split(',')) {
+    for (const p of (process.env.KT_PAGES || 'graphics,world,mods,cache,backups,settings').split(',')) {
       await nav(p); await wait(1100); await shot('2-' + p);
     }
     await js(`document.getElementById('profile-card').click()`);
@@ -212,6 +218,26 @@ app.whenReady().then(() => {
     fs.writeFileSync(r.filePath, xml);
     return r.filePath;
   });
+  // ----- Advanced editor: timecycles from any pack, installed or not -----
+  let edPack = null;
+  handle('editor:packs', () => mgr.listTweaks().filter((t) => t.kind === 'pack').map((t) => ({ id: t.id, name: t.name, enabled: t.enabled })));
+  handle('editor:openPack', async (src) => {
+    if (src && src.id) edPack = EditorPack.installed(mgr, src.id);
+    else {
+      let p = src && src.path;
+      if (!p) {
+        const r = await dialog.showOpenDialog(win, { title: 'Open a graphics pack (folder, .zip or .rpf)', properties: ['openFile', 'openDirectory'], filters: [{ name: 'Graphics pack', extensions: ['zip', 'rpf', 'xml'] }] });
+        if (r.canceled) return null;
+        p = r.filePaths[0];
+      }
+      edPack = EditorPack.open(p);
+    }
+    if (!edPack.files.length) { const n = edPack.name; edPack = null; throw new Error(n + ' has no timecycle files.'); }
+    return { name: edPack.name, files: edPack.list() };
+  });
+  handle('editor:readPack', (rel) => { if (!edPack) throw new Error('Open a pack first.'); return edPack.read(rel); });
+  handle('editor:savePack', (rel, xml) => { if (!edPack) throw new Error('Open a pack first.'); return edPack.save(rel, xml); });
+
   // ----- Pack AI: a dropped pack to build on, and the sky texture -----
   const gtaDirs = () => findGtaDirs({ citizenPath: mgr.state.citizenPath, knownExe: cachedExe(), exes: findGtaExes() });
   handle('gfx:loadPack', (sources) => {
@@ -281,7 +307,7 @@ app.whenReady().then(() => {
   // ----- texture labs: clouds, blood FX -----
   const labs = {};
   const PACK_NAMES = { clouds: 'Custom clouds', blood: 'Custom blood FX' };
-  const labInfo = (kind) => ({ label: labs[kind].label, items: labs[kind].items.map((x) => ({ key: x.key, name: x.name, file: x.file, path: x.path, textures: x.ytd.describe(true) })) });
+  const labInfo = (kind) => ({ label: labs[kind].label, items: labs[kind].items.map((x) => ({ key: x.key, name: x.name, file: x.file, path: x.path, textures: x.ytd.describe(true).filter((t) => !x.only || x.only.includes(t.index)) })) });
   handle('tex:list', (kind) => listSources(kind, skyCtx()));
   handle('tex:open', async (kind, id) => { labs[kind] = await openSource(kind, id, skyCtx()); return labInfo(kind); });
   handle('tex:openFiles', async (kind, given) => {
@@ -386,8 +412,30 @@ app.whenReady().then(() => {
   handle('look:set', (patch) => look.set(patch));
   handle('look:clear', () => look.clear());
 
+  // ----- AI link (Pack AI) -----
+  // The key is stored encrypted with the OS keychain when Electron can.
+  const aiCfg = () => {
+    const a = mgr.state.ai || {};
+    let key = '';
+    try { key = a.key ? (a.enc && safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(Buffer.from(a.key, 'base64')) : a.key) : ''; } catch (e) { key = ''; }
+    return { url: a.url || '', model: a.model || '', key };
+  };
+  const aiPublic = () => { const c = aiCfg(); return { url: c.url, model: c.model || (c.url && isAnthropic(c) ? DEFAULT_ANTHROPIC_MODEL : ''), hasKey: !!c.key, on: !!c.url }; };
+  handle('ai:config', () => aiPublic());
+  handle('ai:setConfig', (patch) => {
+    const cur = aiCfg();
+    const next = { url: String(patch.url ?? cur.url).trim(), model: String(patch.model ?? cur.model).trim(), key: patch.key != null ? String(patch.key).trim() : cur.key };
+    if (next.url && !/^https?:\/\//i.test(next.url)) throw new Error('The API link must start with http:// or https://');
+    const enc = !!next.key && safeStorage.isEncryptionAvailable();
+    mgr.state.ai = { url: next.url, model: next.model, key: next.key ? (enc ? safeStorage.encryptString(next.key).toString('base64') : next.key) : '', enc };
+    mgr.save();
+    return aiPublic();
+  });
+  handle('ai:ask', (input) => askPackAi(aiCfg(), input));
+  handle('ai:test', async () => (await askPackAi(aiCfg(), { text: 'pvp pack, no fog', spec: null })).reply);
+
   // ----- profile / discord -----
-  handle('profile:get', () => ({ ...mgr.getProfile(), discordLive: !!discord.sock }));
+  handle('profile:get', () => ({ ...mgr.getProfile(), discordLive: !!discord.sock, discordBuiltIn: !!DISCORD_APP_ID }));
   handle('profile:set', (patch) => mgr.setProfile(patch));
   handle('profile:pickAvatar', async () => {
     const r = await dialog.showOpenDialog(win, { title: 'Choose avatar', properties: ['openFile'], filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp'] }] });
@@ -398,12 +446,29 @@ app.whenReady().then(() => {
     return 'data:image/' + ext + ';base64,' + fs.readFileSync(f).toString('base64');
   });
   handle('discord:connect', async (clientId) => {
-    const user = await discord.connect(clientId);
-    mgr.setProfile({ discordClientId: String(clientId), discord: user });
+    const id = String(clientId || mgr.getProfile().discordClientId || DISCORD_APP_ID);
+    const user = await discord.connect(id);
+    mgr.setProfile({ discordClientId: id === DISCORD_APP_ID ? '' : id, discord: user, discordOff: false });
     discord.setActivity('Modding FiveM', 'Kt Mod Manager', startedAt);
     return user;
   });
-  handle('discord:disconnect', () => { discord.disconnect(); return mgr.setProfile({ discord: null }); });
+  handle('discord:disconnect', () => { discord.disconnect(); return mgr.setProfile({ discord: null, discordOff: true }); });
+  // Connects by itself: at start, and again every 30 s while Discord is closed.
+  const autoDiscord = async () => {
+    const p = mgr.getProfile();
+    const id = p.discordClientId || DISCORD_APP_ID;
+    if (discord.sock || discord.busy || !id || p.discordOff) return;
+    discord.busy = true;
+    try {
+      const user = await discord.connect(id);
+      mgr.setProfile({ discord: user });
+      discord.setActivity('Modding FiveM', 'Kt Mod Manager', startedAt);
+    } catch (e) { /* Discord not open yet */ }
+    discord.busy = false;
+    if (win && !win.isDestroyed()) win.webContents.send('profile:changed');
+  };
+  setTimeout(autoDiscord, 1500).unref();
+  setInterval(autoDiscord, 30000).unref();
   handle('discord:activity', (details, state) => discord.setActivity(details, state, startedAt));
 
   // ----- gun lab -----
@@ -443,9 +508,9 @@ app.whenReady().then(() => {
     if (fs.statSync(file).size > 30 * 1048576) throw new Error('That font file is too big.');
     return { name: path.basename(file).replace(/\.(ttf|otf)$/i, ''), data: fs.readFileSync(file) };
   });
-  handle('gun:export', async (edits, opts = {}) => {
+  handle('gun:export', async (edits, opts = {}, geometry = []) => {
     if (!gun) throw new Error('Open a gun file first.');
-    gun.applyEdits(edits.map((e) => ({ ...e, data: Buffer.from(e.data) })));
+    gun.applyEdits(edits.map((e) => ({ ...e, data: Buffer.from(e.data) })), geometry);
     let out = opts.path;
     if (opts.toMods) out = path.join(appPath(), 'mods', path.basename(gun.filePath));
     if (!out) {

@@ -106,7 +106,7 @@ export function createLab(cfg) {
     const id = itemKey + ':' + texIndex;
     if (st.docs.has(id)) return st.docs.get(id);
     const item = st.items.find((x) => x.key === itemKey);
-    const t = item.textures[texIndex];
+    const t = item.textures.find((x) => x.index === texIndex);
     const w = t.width; const h = t.height;
     const c = canvas(w, h);
     const g = c.getContext('2d', { willReadFrequently: true });
@@ -394,7 +394,8 @@ export function createLab(cfg) {
     $$('.cl-tex', list).forEach((li) => (li.onclick = () => {
       const [k, i] = li.dataset.doc.split(':').map(Number);
       const it = st.items.find((x) => x.key === k);
-      if (!it.textures[i].editable) return notify.info('This texture is locked', it.textures[i].format + ' textures cannot be written back yet.');
+      const t = it.textures.find((x) => x.index === i);
+      if (!t.editable) return notify.info('This texture is locked', t.format + ' textures cannot be written back yet.');
       select(k, i);
     }));
     // thumbnails, a few at a time so the page stays responsive
