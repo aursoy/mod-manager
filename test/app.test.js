@@ -104,13 +104,13 @@ test('the whole app: water, packs, mods, world, blood FX, Pack AI, editor, AI li
   let mt = await call('world:mountains');
   check('black mountains found in GTA V', mt.available && mt.value === 1);
   mt = await call('world:setMountains', { removed: true });
-  check('black mountains removed', mt.removed && (read('common/data/visualsettings.dat') || '').includes('farClipMultiplier\t0.5'));
+  check('black mountains removed', mt.removed && (read('common/data/visualsettings.dat') || '').includes('farClipMultiplier\t0.3'));
   let pl = await call('world:pedLod');
   check('player detail: GTA default read', pl.available && pl.before === 25 && !pl.on);
   pl = await call('world:setPedLod', true);
   const vsNow = read('common/data/visualsettings.dat') || '';
   check('player detail fixed', pl.on && vsNow.includes('ped.lod.distance.high\t150') && vsNow.includes('pedincar.lod.distance.high.x64\t80'));
-  check('both in the file together', vsNow.includes('farClipMultiplier\t0.5'));
+  check('both in the file together', vsNow.includes('farClipMultiplier\t0.3'));
   mt = await call('world:setMountains', { removed: false });
   check('black mountains back, player fix kept', !mt.removed && (read('common/data/visualsettings.dat') || '').includes('ped.lod.distance.high\t150') && (read('common/data/visualsettings.dat') || '').includes('farClipMultiplier\t1'));
   pl = await call('world:setPedLod', false);

@@ -39,7 +39,7 @@ function mountainsCard(m) {
   return `<div class="card tweak ${m.removed ? 'on' : ''}" data-world="mountains">
     <div class="tweak-top"><div class="tweak-icon"><div class="wave"></div>${icon('mountain')}</div>
       <div><span class="big-state">${m.removed ? 'Removed' : 'Visible'}</span><h3>Black mountains</h3>
-      <p>Hides the dark mountains far away.</p></div></div>
+      <p>Hides the dark mountains far away by drawing less of the distance. Lower the slider to hide more; Visible puts your game's own distance back.</p></div></div>
     ${far ? `<div class="slider-field"><span>Draw distance <b id="mtn-val">${fmt(m.value)}×</b></span><input type="range" id="mtn-dist" min="0.1" max="2" step="0.05" value="${m.value}" /></div>` : ''}
     ${m.packKeys.length ? `<div class="mtn-keys"><p class="label">Your pack's "${esc(m.packKeys[0].section)}" lines</p>${m.packKeys.map((k) => `<label class="mtn-key"><span class="mono">${esc(k.key)}</span><input type="number" step="any" data-key="${esc(k.key)}" value="${fmt(k.value)}" /></label>`).join('')}</div>` : ''}
     <div class="state">${seg(m.removed, !m.removed, 'Removed', 'Visible')}<span class="fine">${far ? 'Original: ' + fmt(m.original) + '×' : ''}</span></div>
@@ -145,7 +145,7 @@ function renderVsList() {
 async function setMountains(opts, btn) {
   try {
     const m = await api.call('world:setMountains', opts);
-    notify.success(m.removed ? 'Black mountains removed' : 'Black mountains back', 'Restart FiveM to see it.');
+    notify.success(opts.distance != null ? 'Draw distance ' + fmt(m.value) + '×' : m.removed ? 'Black mountains removed' : 'Black mountains back', (opts.distance != null ? (m.removed ? 'Shorter than normal, so the far mountains are cut off. ' : 'Not shorter than normal, so the far mountains still show. ') : '') + 'Restart FiveM to see it.');
   } catch (e) { notify.error('Could not change black mountains', e.message); }
   if (btn) busy(btn, false);
   refreshWorld();

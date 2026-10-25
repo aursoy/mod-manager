@@ -463,7 +463,7 @@ app.whenReady().then(() => {
   handle('gfx:readImage', (f) => readImage(f));
 
   handle('backups:list', () => mgr.listBackups());
-  handle('backups:restoreAll', () => mgr.restoreAll());
+  handle('backups:restoreAll', () => { const r = mgr.restoreAll(); try { world.syncMods(); } catch (e) { mgr.log('warn', 'Could not put back packs in mods: ' + e.message); } return r; });
 
   // ----- mods folder -----
   const modsPath = () => path.join(appPath(), 'mods');
