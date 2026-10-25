@@ -7,6 +7,7 @@
 const fs = require('fs');
 const path = require('path');
 const rpf = require('./rpf');
+const { YtdFile, RpfSky } = require('./skytex');
 
 const TC_SNIFF = /_col_r>|<cycle\s+name=|<region\s+name=|timecycle_keyframe_data/i;
 const MAX_FILE = 16 * 1048576;
@@ -32,8 +33,9 @@ function headOf(abs) {
 
 class EditorPack {
   /** files: [{ rel, name, read(), write(text) }] */
-  constructor(name, files, { afterSave = null, where = '' } = {}) {
+  constructor(name, files, { afterSave = null, where = '', sky = null } = {}) {
     this.name = name;
+    this.skyFinder = sky;
     this.files = sortFiles(files);
     this.afterSave = afterSave;
     this.where = where;
@@ -48,6 +50,16 @@ class EditorPack {
   }
 
   read(rel) { return this.file(rel).read(); }
+
+  /** The pack's own sky picture (skydome.ytd, loose or inside one of its RPFs), or null.
+   *  Many packs draw the whole sky with it and set the timecycle sky colours to black. */
+  sky() {
+    if (!this.skyFinder) return null;
+    if (this._sky === undefined) {
+      try { this._sky = this.skyFinder(); } catch (e) { if (e.code === rpf.NEED_KEYS) throw e; this._sky = null; }
+    }
+    return this._sky;
+  }
 
   save(rel, xml) {
     if (typeof xml !== 'string' || !/<[a-z_]/i.test(xml)) throw new Error('That does not look like timecycle XML.');
@@ -68,7 +80,16 @@ class EditorPack {
           fs.writeFileSync(f.abs, xml);
         },
       }));
-    return new EditorPack(name, files, { ...opts, where: opts.where || dir });
+    const sky = () => {
+      const all = walkDir(dir);
+      const ytd = all.find((f) => /(^|\/)skydome\.ytd$/i.test(f.rel));
+      if (ytd) return { obj: new YtdFile(fs.readFileSync(ytd.abs), 'skydome.ytd'), label: ytd.rel };
+      for (const f of all.filter((x) => /\.rpf$/i.test(x.rel) && x.size <= MAX_RPF)) {
+        try { const obj = new RpfSky(fs.readFileSync(f.abs), path.basename(f.rel)); return { obj, label: f.rel + ' → ' + obj.path }; } catch (e) { if (e.code === rpf.NEED_KEYS) throw e; }
+      }
+      return null;
+    };
+    return new EditorPack(name, files, { sky, ...opts, where: opts.where || dir });
   }
 
   static fromZip(file) {
@@ -86,7 +107,15 @@ class EditorPack {
           zip.writeZip(file);
         },
       }));
-    return new EditorPack(path.basename(file).replace(/\.zip$/i, ''), files, { where: file });
+    const sky = () => {
+      const ytd = zip.getEntries().find((e) => /(^|\/)skydome\.ytd$/i.test(e.entryName));
+      if (ytd) return { obj: new YtdFile(ytd.getData(), 'skydome.ytd'), label: ytd.entryName };
+      for (const e of zip.getEntries().filter((x) => /\.rpf$/i.test(x.entryName) && x.header.size <= MAX_RPF)) {
+        try { const obj = new RpfSky(e.getData(), path.basename(e.entryName)); return { obj, label: e.entryName + ' → ' + obj.path }; } catch (err) { if (err.code === rpf.NEED_KEYS) throw err; }
+      }
+      return null;
+    };
+    return new EditorPack(path.basename(file).replace(/\.zip$/i, ''), files, { where: file, sky });
   }
 
   /** An .rpf (timecycles at any depth, nested archives included). */
@@ -119,7 +148,8 @@ class EditorPack {
       });
     };
     scan(root, '', []);
-    return new EditorPack(path.basename(file).replace(/\.rpf$/i, ''), files, { where: file });
+    const sky = () => { const obj = new RpfSky(fs.readFileSync(file), path.basename(file)); return { obj, label: path.basename(file) + ' → ' + obj.path }; };
+    return new EditorPack(path.basename(file).replace(/\.rpf$/i, ''), files, { where: file, sky });
   }
 
   /** A folder, .zip or .rpf the player picked. */
@@ -148,4 +178,20 @@ class EditorPack {
   }
 }
 
-module.exports = { EditorPack };
+/** RPFs in FiveM.app/mods that have timecycle files inside (graphics packs installed there). */
+const TC_NAME = /^(w_[a-z0-9_]+|timecycle[a-z0-9_]*)\.xml$/i;
+function modsPacks(modsDir, findInFile) {
+  let names = [];
+  try { names = fs.readdirSync(modsDir).filter((n) => /\.rpf$/i.test(n)); } catch (e) { return []; }
+  const out = [];
+  for (const n of names) {
+    const file = path.join(modsDir, n);
+    try {
+      if (fs.statSync(file).size > MAX_RPF) continue;
+      if (findInFile(file, (x) => TC_NAME.test(x)).length) out.push({ name: n, file });
+    } catch (e) { /* encrypted or unreadable: skipped */ }
+  }
+  return out;
+}
+
+module.exports = { EditorPack, modsPacks };

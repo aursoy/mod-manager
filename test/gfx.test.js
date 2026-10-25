@@ -657,7 +657,7 @@ test('sky is found in a pack RPF whatever it is called, and RPFs without a sky a
 const { WorldFiles, VS, WEATHER, PED_LOD } = require('../src/core/worldfiles');
 
 const VS_TEXT = '# Misc Values\nmisc.Multiplier.heightStart\t100\nmisc.Multiplier.farClipMultiplier\t1\n\n# black mountains fix\nlod.fadedist.slod3\t\t25.0\r\n\n# vehicles\ncar.lod.distance.high\t90.00\n';
-const WEATHER_XML = '<CWeatherTypes><WeatherTypes><Item><Name>EXTRASUNNY</Name><Snow value="0.000000"/><SnowMist value="0.000000"/></Item><Item><Name>XMAS</Name><Snow value="1.000000"/><SnowMist value="1.000000"/></Item></WeatherTypes></CWeatherTypes>';
+const WEATHER_XML = '<CWeatherTypes><WeatherTypes><Item><Name>EXTRASUNNY</Name><Snow value="0.000000"/><SnowMist value="0.000000"/><DropSettingName /><MistSettingName>MIST_NONE</MistSettingName><GroundSettingName>DRY</GroundSettingName><TimeCycleFilename>EXTRASUNNY</TimeCycleFilename></Item><Item><Name>XMAS</Name><Snow value="1.000000"/><SnowMist value="1.000000"/><DropSettingName>SNOW_XMAS</DropSettingName><MistSettingName>MIST_SNOW</MistSettingName><GroundSettingName>SNOW_GROUND</GroundSettingName><TimeCycleFilename>XMAS</TimeCycleFilename></Item></WeatherTypes></CWeatherTypes>';
 
 test('black mountains: lowers the draw distance on top of a pack\'s visualsettings.dat, and off puts the pack\'s file back exactly', () => {
   const { m, cit } = makeCitizen();
@@ -675,7 +675,8 @@ test('black mountains: lowers the draw distance on top of a pack\'s visualsettin
   assert.strictEqual(st.removed, true);
   assert.strictEqual(st.value, 0.5);
   const now = fs.readFileSync(path.join(cit, VS), 'utf8');
-  assert.strictEqual(now, VS_TEXT.replace('farClipMultiplier\t1', 'farClipMultiplier\t0.5'), 'only that one value changed');
+  assert.ok(now.startsWith(VS_TEXT.replace('heightStart\t100', 'heightStart\t-1000').replace('farClipMultiplier\t1', 'farClipMultiplier\t0.5').replace(/\n$/, '')), 'far clip halved and used at every height');
+  assert.ok(/misc\.Multiplier\.heightEnd\t-999/.test(now), 'the missing heightEnd line is added');
   wf.setMountains({ removed: true, keys: { 'lod.fadedist.slod3': 0 } });
   assert.ok(fs.readFileSync(path.join(cit, VS), 'utf8').includes('slod3\t\t0\r\n'));
   wf.setMountains({ removed: false });
@@ -692,6 +693,10 @@ test('snow: switches on snow for every weather from GTA V\'s own weather.xml, of
   const x = fs.readFileSync(path.join(cit, WEATHER), 'utf8');
   assert.strictEqual((x.match(/<Snow value="0.800000"\/>/g) || []).length, 2);
   assert.strictEqual((x.match(/<SnowMist value="0.480000"\/>/g) || []).length, 2);
+  assert.strictEqual((x.match(/<DropSettingName>SNOW_XMAS<\/DropSettingName>/g) || []).length, 2, 'snowfall particles in every weather');
+  assert.strictEqual((x.match(/<MistSettingName>MIST_SNOW</g) || []).length, 2);
+  assert.strictEqual((x.match(/<GroundSettingName>SNOW_GROUND</g) || []).length, 2);
+  assert.ok(x.includes('<TimeCycleFilename>EXTRASUNNY</TimeCycleFilename>'), 'each weather keeps its own look');
   wf.setSnow(0);
   assert.ok(!fs.existsSync(path.join(cit, WEATHER)), 'the game\'s own file is used again');
 });
@@ -722,7 +727,7 @@ test('player detail fix: raises the ped LOD distances, works together with black
   assert.strictEqual(st.now, PED_LOD['ped.lod.distance.high']);
   let text = fs.readFileSync(path.join(cit, VS), 'utf8');
   assert.ok(text.includes('ped.lod.distance.low\t400\n') && text.includes('farClipMultiplier\t0.5'), 'both options are in the file');
-  assert.ok(text.includes('# Kt Mod Manager\npedincar.lod.distance.high.x64\t80'), 'a line the file did not have is added');
+  assert.ok(/# Kt Mod Manager\n[^#]*pedincar\.lod\.distance\.high\.x64\t80/.test(text), 'a line the file did not have is added');
   wf.setMountains({ removed: false });
   text = fs.readFileSync(path.join(cit, VS), 'utf8');
   assert.ok(text.includes('farClipMultiplier\t1\n') && text.includes('ped.lod.distance.high\t150'), 'mountains back, player fix kept');
@@ -841,6 +846,44 @@ test('editor packs: timecycles open from a folder, a .zip and a nested .rpf, and
   assert.ok(fs.existsSync(rf + '.bak'));
 });
 
+test('editor packs: the pack\'s own sky picture is found (loose, in a .zip, in a nested .rpf), and mods-folder packs are listed', () => {
+  const dl = fs.mkdtempSync(path.join(os.tmpdir(), 'kt-edsky-'));
+  const sky = buildYtd(['starfield'], 64, 32);
+  const tc = Buffer.from(buildTimecycle(['EXTRASUNNY']));
+  // folder with a loose skydome.ytd
+  const dir = path.join(dl, 'Pic Pack');
+  fs.mkdirSync(path.join(dir, 'citizen', 'platform', 'textures'), { recursive: true });
+  fs.mkdirSync(path.join(dir, 'citizen', 'common', 'data', 'timecycle'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'citizen', 'platform', 'textures', 'skydome.ytd'), sky);
+  fs.writeFileSync(path.join(dir, 'citizen', 'common', 'data', 'timecycle', 'w_extrasunny.xml'), tc);
+  let got = EditorPack.open(dir).sky();
+  assert.ok(got && /skydome\.ytd$/.test(got.label));
+  const t = got.obj.describe(true)[got.obj.skyIndex()];
+  assert.strictEqual(t.name, 'starfield'); assert.strictEqual(t.width, 64); assert.ok(t.data.length >= 64 * 32 / 2);
+  // zip
+  const AdmZip = require('adm-zip');
+  const z = new AdmZip();
+  z.addFile('p/timecycle/w_rain.xml', tc); z.addFile('p/skydome.ytd', sky);
+  z.writeZip(path.join(dl, 'p.zip'));
+  assert.strictEqual(EditorPack.open(path.join(dl, 'p.zip')).sky().obj.describe()[0].name, 'starfield');
+  // an rpf in FiveM.app/mods with the sky and timecycle inside a nested archive
+  const mods = path.join(dl, 'mods');
+  fs.mkdirSync(mods);
+  const inner = rpf.writeRpf({ type: 'dir', name: '', children: [binOf('w_extrasunny.xml', tc), resOf('skydome.ytd', sky)] });
+  fs.writeFileSync(path.join(mods, 'gfx.rpf'), rpf.writeRpf({ type: 'dir', name: '', children: [binOf('dlc.rpf', inner)] }));
+  fs.writeFileSync(path.join(mods, 'cars.rpf'), rpf.writeRpf({ type: 'dir', name: '', children: [binOf('readme.txt', Buffer.from('x'))] }));
+  const { modsPacks } = require('../src/core/editorpack');
+  const { findInFile } = require('../src/core/rpfscan');
+  assert.deepStrictEqual(modsPacks(mods, findInFile).map((x) => x.name), ['gfx.rpf'], 'only RPFs with timecycles');
+  const rp = EditorPack.open(path.join(mods, 'gfx.rpf'));
+  assert.deepStrictEqual(rp.list().map((f) => f.name), ['w_extrasunny.xml']);
+  assert.ok(/dlc\.rpf\/skydome\.ytd/.test(rp.sky().label));
+  // no sky: null, not an error
+  const bare = path.join(dl, 'bare');
+  fs.mkdirSync(bare); fs.writeFileSync(path.join(bare, 'w_clear.xml'), buildTimecycle(['CLEAR']));
+  assert.strictEqual(EditorPack.open(bare).sky(), null);
+});
+
 test('editor packs: editing an installed pack that is on updates the game too', () => {
   const { m, cit } = makeCitizen();
   const packDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kt-edinst-'));
@@ -852,4 +895,34 @@ test('editor packs: editing an installed pack that is on updates the game too', 
   p.save('common/data/timecycle/w_extrasunny.xml', '<x><cycle name="EDITED"/></x>');
   assert.ok(fs.readFileSync(path.join(cit, 'common', 'data', 'timecycle', 'w_extrasunny.xml'), 'utf8').includes('EDITED'));
   assert.ok(fs.readFileSync(path.join(m.libraryDir(id), 'common', 'data', 'timecycle', 'w_extrasunny.xml'), 'utf8').includes('EDITED'));
+});
+
+test('still clouds: every cloud hat stops turning and scrolling, and off puts clouds.xml back', () => {
+  const { m, cit } = makeCitizen();
+  const XML = `<CloudHatSettings>
+  <mCloudHatFrags>
+    <Item>
+      <mName>Cloudy 01</mName>
+      <mAngularVelocity x="0.000000" y="0.000000" z="0.000150" />
+      <mUVVelocity>
+        0.003000\t-0.001200
+        0.010000\t0.000000
+      </mUVVelocity>
+      <mEnableAnimations value="true" />
+    </Item>
+  </mCloudHatFrags>
+  <mDesiredTransitionTimeSec value="20.000000" />
+  <mAltitudeScrollScaler value="0.120000" />
+</CloudHatSettings>`;
+  const { CLOUDS } = require('../src/core/worldfiles');
+  const wf = new WorldFiles(m, path.join(os.tmpdir(), 'kt-wf5-' + Date.now()), (arc, inner) => (arc === 'update/update.rpf' && inner === 'common/data/clouds.xml' ? Buffer.from(XML) : null));
+  assert.deepStrictEqual(wf.stillClouds(), { available: true, on: false, hats: 1 });
+  assert.strictEqual(wf.setStillClouds(true).on, true);
+  const t = fs.readFileSync(path.join(cit, CLOUDS), 'utf8');
+  assert.ok(t.includes('<mAngularVelocity x="0.000000" y="0.000000" z="0.000000" />'));
+  assert.ok(!/0\.003000|0\.010000|-0\.001200/.test(t), 'scroll speeds zeroed');
+  assert.ok(t.includes('<mEnableAnimations value="false" />') && t.includes('<mAltitudeScrollScaler value="0.000000" />'));
+  assert.ok(t.includes('<mDesiredTransitionTimeSec value="20.000000" />'), 'other values untouched');
+  wf.setStillClouds(false);
+  assert.ok(!fs.existsSync(path.join(cit, CLOUDS)));
 });

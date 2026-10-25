@@ -4,6 +4,7 @@
 //   Black mountains   visualsettings.dat  (how far the game draws: misc.Multiplier.farClipMultiplier)
 //   Player detail     visualsettings.dat  (how far away players keep their full model: ped.lod.distance.*)
 //   Snow              weather.xml         (the Snow / SnowMist value of every weather type)
+//   Still clouds      clouds.xml          (cloud hats stop turning and scrolling)
 //   Visual settings   visualsettings.dat  (any line, from the editor)
 // Each change remembers exactly what was there before it, so switching it off puts
 // that back: a pack's file stays the pack's file. The visualsettings.dat options each
@@ -16,12 +17,16 @@ const { parseVS, setValues, packMountainKeys, FAR_CLIP } = require('./visualsett
 
 const VS = 'common/data/visualsettings.dat';
 const WEATHER = 'common/data/levels/gta5/weather.xml';
+const SNOW_EFFECTS = ['DropSettingName', 'MistSettingName', 'GroundSettingName'];
+const CLOUDS = 'common/data/clouds.xml';
 // where the same files live inside the game, newest first
 const GAME_PATHS = {
   [VS]: [['update/update.rpf', 'common/data/visualsettings.dat'], ['common.rpf', 'data/visualsettings.dat']],
   [WEATHER]: [['update/update.rpf', 'common/data/levels/gta5/weather.xml'], ['common.rpf', 'data/levels/gta5/weather.xml']],
+  [CLOUDS]: [['update/update.rpf', 'common/data/clouds.xml'], ['common.rpf', 'data/clouds.xml']],
 };
 const REMOVED_FAR_CLIP = 0.5;
+const HEIGHT_EVERYWHERE = { 'misc.Multiplier.heightStart': -1000, 'misc.Multiplier.heightEnd': -999 };
 const VS_OWNER = 'visualsettings';
 const VS_LAYERS = ['mountains', 'pedlod', 'editor']; // later ones win on the same line
 // Up to how many metres away a player keeps the full model. GTA's own values are
@@ -151,7 +156,12 @@ class WorldFiles {
     if (base == null) throw new Error('No visualsettings.dat found in your game or packs.');
     const far = parseVS(base).find((e) => e.key === FAR_CLIP);
     const changes = { ...(opts.keys || {}) };
-    if (far) changes[FAR_CLIP] = opts.distance != null ? opts.distance : opts.removed ? far.value * REMOVED_FAR_CLIP : far.value;
+    if (far) {
+      changes[FAR_CLIP] = opts.distance != null ? opts.distance : opts.removed ? far.value * REMOVED_FAR_CLIP : far.value;
+      // GTA only uses farClipMultiplier between heightStart and heightEnd (100-250 m up, for
+      // flying), so on the ground it does nothing. Below ground on both, it applies everywhere.
+      if (changes[FAR_CLIP] !== far.value) Object.assign(changes, HEIGHT_EVERYWHERE);
+    }
     this.writeVS('mountains', changes);
     return this.mountains();
   }
@@ -171,6 +181,33 @@ class WorldFiles {
   setPedLod(on) {
     this.writeVS('pedlod', on ? { ...PED_LOD } : null);
     return this.pedLod();
+  }
+
+  // ---------- still clouds ----------
+  // Every cloud hat in clouds.xml has a spin (mAngularVelocity), a scroll per layer
+  // (mUVVelocity) and animations (mEnableAnimations); the manager scrolls them with
+  // altitude too (mAltitudeScrollScaler). Zero them all and the clouds stay put.
+
+  stillClouds() {
+    const text = this.current(CLOUDS);
+    if (text == null) return { available: false };
+    const hats = (text.match(/<mAngularVelocity\b/g) || []).length;
+    return { available: hats > 0, on: this.mgr.state.owners[CLOUDS] === 'clouds', hats };
+  }
+
+  setStillClouds(on) {
+    if (!on) { this.unpatch('clouds', CLOUDS); return this.stillClouds(); }
+    const base = this.before('clouds', CLOUDS);
+    if (base == null) throw new Error('No clouds.xml found in your game or packs.');
+    if (!/<mAngularVelocity\b/.test(base)) throw new Error('This clouds.xml has no cloud movement settings.');
+    const zero = (n) => n.replace(/-?\d+(\.\d+)?(e[-+]?\d+)?/gi, (m) => (m.includes('.') ? '0.000000' : '0'));
+    const text = base
+      .replace(/(<mAngularVelocity\b[^>]*?)\/?>/g, (tag) => tag.replace(/(\b[xyz]\s*=\s*")([^"]*)(")/g, (m, a, v, b) => a + '0.000000' + b))
+      .replace(/(<mUVVelocity\b[^>]*>)([\s\S]*?)(<\/mUVVelocity>)/g, (m, a, body, b) => a + zero(body) + b)
+      .replace(/(<mAltitudeScrollScaler\s+value=")[^"]*(")/g, '$10.000000$2')
+      .replace(/(<mEnableAnimations\s+value=")[^"]*(")/g, '$1false$2');
+    this.patch('clouds', CLOUDS, text);
+    return this.stillClouds();
   }
 
   // ---------- visual settings editor ----------
@@ -206,10 +243,20 @@ class WorldFiles {
     if (base == null) throw new Error('No weather.xml found in your game or packs.');
     if (!/<Snow\s+value=/.test(base)) throw new Error('This weather.xml has no snow settings.');
     const v = amount.toFixed(6);
-    const text = base.replace(/(<Snow\s+value=")[^"]*(")/g, '$1' + v + '$2').replace(/(<SnowMist\s+value=")[^"]*(")/g, '$1' + (amount * 0.6).toFixed(6) + '$2');
+    // The amount alone shows nothing: each weather also names its falling-particle, mist and
+    // ground effects, and only the snowy ones name snow. Every weather borrows those from XMAS.
+    const items = base.match(/<Item>[\s\S]*?<\/Item>/g) || [];
+    const snowy = ['XMAS', 'BLIZZARD', 'SNOW', 'SNOWLIGHT'].map((n) => items.find((it) => new RegExp('<Name>\\s*' + n + '\\s*</Name>', 'i').test(it))).find(Boolean);
+    const effects = {};
+    if (snowy) for (const tag of SNOW_EFFECTS) { const m = new RegExp('<' + tag + '>([^<]*)</' + tag + '>').exec(snowy); if (m) effects[tag] = m[1]; }
+    const text = base.replace(/<Item>[\s\S]*?<\/Item>/g, (it) => {
+      let out = it.replace(/(<Snow\s+value=")[^"]*(")/g, '$1' + v + '$2').replace(/(<SnowMist\s+value=")[^"]*(")/g, '$1' + (amount * 0.6).toFixed(6) + '$2');
+      for (const [tag, val] of Object.entries(effects)) out = out.replace(new RegExp('(<' + tag + '>)[^<]*(</' + tag + '>)'), '$1' + val + '$2').replace(new RegExp('<' + tag + '\\s*/>'), '<' + tag + '>' + val + '</' + tag + '>');
+      return out;
+    });
     this.patch('snow', WEATHER, text);
     return this.snow();
   }
 }
 
-module.exports = { WorldFiles, VS, WEATHER, PED_LOD };
+module.exports = { WorldFiles, VS, WEATHER, CLOUDS, PED_LOD };

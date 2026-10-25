@@ -7,7 +7,7 @@ import { busy, syncSeg, fillRange } from './fx.js';
 import * as TC from './timecycle.js';
 import * as AI from './gfxai.js';
 import { drawScene } from './scene3d.js';
-import { encode as encodeTex } from './dxt.js';
+import { encode as encodeTex, decode as decodeTex } from './dxt.js';
 import { cleanError } from './keys.js';
 import { createLab } from './cloudlab.js';
 
@@ -39,6 +39,7 @@ const ed = {
   rel: null, name: '', model: null, sectionId: null, hour: 12, group: 'all', query: '', open: null,
   items: [], playing: null, drawQueued: false, external: null, aiDraft: null,
   src: 'game', pack: null, // which pack the File list comes from (your game, an installed pack, or one on disk)
+  skyPic: null, skyToken: null, // the sky picture (skydome.ytd) the preview draws, from the pack or your game
 };
 const GRADE_GROUPS = ['sky', 'sun', 'cloud', 'light', 'ambient', 'fog'];
 
@@ -53,8 +54,53 @@ function queueDraw() {
   requestAnimationFrame(() => {
     ed.drawQueued = false;
     const sec = section();
-    if (sec && pane === 'editor') drawScene($('#tce-canvas'), sec, ed.hour);
+    if (sec && pane === 'editor') { drawScene($('#tce-canvas'), sec, ed.hour, skyOpts()); skyHint(); }
   });
+}
+
+// ---------- the sky picture ----------
+// GTA draws skydome.ytd on top of the sky colours, scaled by "Stars brightness". In the
+// stock game that is the starfield at night; picture-sky packs put a whole sky in it,
+// set the sky colours to black and turn the stars up, so the colours read black here
+// while the game shows the picture. The preview draws it the same way.
+
+const skyOpts = () => (ed.skyPic && ed.skyPic.canvas ? { image: ed.skyPic.canvas, additive: true } : null);
+
+function skyCanvas(t) {
+  try {
+    const px = decodeTex(t.format, new Uint8Array(t.data), t.width, t.height);
+    for (let k = 3; k < px.length; k += 4) px[k] = 255;
+    const c = document.createElement('canvas');
+    c.width = t.width; c.height = t.height;
+    c.getContext('2d').putImageData(new ImageData(px, t.width, t.height), 0, 0);
+    return c;
+  } catch (e) { return null; }
+}
+
+async function loadSkyPicture() {
+  const key = ed.pack ? 'pack:' + ed.pack.name : 'game';
+  if (ed.skyPic && ed.skyPic.key === key && Date.now() - ed.skyPic.at < 60000) return;
+  const token = (ed.skyToken = {});
+  let r = null;
+  try {
+    r = await api.call('sky:picture', ed.pack ? 'pack' : 'game');
+    // a pack without its own sky uses the one your game has
+    if (!r && ed.pack) r = await api.call('sky:picture', 'game');
+  } catch (e) { r = null; }
+  if (ed.skyToken !== token) return;
+  ed.skyPic = { key, at: Date.now(), canvas: r ? skyCanvas(r) : null, label: r ? r.label : '' };
+  queueDraw();
+}
+
+function skyHint() {
+  const el = $('#tce-skyhint');
+  const sec = section();
+  const stars = sec && sec.scalars.find((p) => /stars_iten/.test(p.name));
+  const on = !!(sec && ed.skyPic && ed.skyPic.canvas && stars && TC.sample(stars.values, ed.hour) > 0.05);
+  const c = on ? TC.sceneColours(sec, ed.hour) : null;
+  const dark = c && Math.max(...c.zenith, ...c.horizon) < 0.08;
+  el.classList.toggle('hidden', !dark);
+  if (dark) el.innerHTML = `<b>Sky is a picture</b><span>This pack paints its sky with <code>skydome.ytd</code>${ed.skyPic.label ? ' (' + esc(ed.skyPic.label) + ')' : ''}, so its sky colours are black on purpose. Its brightness is <i>Stars brightness</i>.</span>`;
 }
 
 function setDirtyTag() {
@@ -102,6 +148,7 @@ async function chooseSource(value) {
   const first = ed.pack ? (ed.pack.files.find((f) => /extrasunny/i.test(f.name)) || ed.pack.files[0]) : (items.find((i) => /extrasunny/i.test(i.name)) || items[0]);
   if (first) { const rel = ed.pack ? 'pk:' + first.rel : first.rel; $('#tce-file').value = rel; await openRel(rel, { force: true }); }
   else { ed.model = null; paintEditor(); }
+  loadSkyPicture();
 }
 
 async function populateFiles(selectRel) {
@@ -329,7 +376,7 @@ function togglePlay() {
     $('#tce-hour-label').textContent = TC.hourLabel(ed.hour);
     $('#tce-tag').textContent = TC.hourLabel(ed.hour);
     if (now - last > 250) { last = now; renderTicks(); for (const e of entries()) refreshSetting(e); }
-    drawScene($('#tce-canvas'), section(), ed.hour);
+    drawScene($('#tce-canvas'), section(), ed.hour, skyOpts());
     ed.playing.raf = requestAnimationFrame(tick);
   };
   ed.playing = { raf: requestAnimationFrame(tick) };
@@ -465,6 +512,7 @@ function initEditor() {
 
 async function enterEditor() {
   await populateSources();
+  loadSkyPicture();
   const items = await populateFiles();
   if (!ed.model) {
     const first = items.find((i) => /extrasunny/i.test(i.name)) || items.find((i) => i.isWeather) || items[0];

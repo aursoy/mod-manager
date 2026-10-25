@@ -15,8 +15,8 @@ const { openSkySource, skySources } = require('./src/core/skysource');
 const { listSources, openSource, openFiles } = require('./src/core/texsource');
 const { WorldFiles } = require('./src/core/worldfiles');
 const { askPackAi, listModels, provider: aiProvider } = require('./src/core/packai');
-const { EditorPack } = require('./src/core/editorpack');
-const { readFileFrom } = require('./src/core/rpfscan');
+const { EditorPack, modsPacks } = require('./src/core/editorpack');
+const { readFileFrom, findInFile } = require('./src/core/rpfscan');
 const { GtaKeys, findAesKey, findGtaExes } = require('./src/core/ngcrypto');
 
 app.setName('Kt Mod Manager');
@@ -220,9 +220,21 @@ app.whenReady().then(() => {
   });
   // ----- Advanced editor: timecycles from any pack, installed or not -----
   let edPack = null;
-  handle('editor:packs', () => mgr.listTweaks().filter((t) => t.kind === 'pack').map((t) => ({ id: t.id, name: t.name, enabled: t.enabled })));
+  const editorModsDir = () => (mgr.state.citizenPath ? path.join(path.dirname(mgr.state.citizenPath), 'mods') : null);
+  handle('editor:packs', () => [
+    ...mgr.listTweaks().filter((t) => t.kind === 'pack').map((t) => ({ id: t.id, name: t.name, enabled: t.enabled })),
+    // graphics packs dropped straight into FiveM.app/mods
+    ...(editorModsDir() ? modsPacks(editorModsDir(), findInFile) : []).map((x) => ({ id: 'mods:' + x.name, name: 'mods / ' + x.name, enabled: true })),
+  ]);
   handle('editor:openPack', async (src) => {
-    if (src && src.id) edPack = EditorPack.installed(mgr, src.id);
+    if (src && src.id && src.id.startsWith('mods:')) {
+      const file = path.join(editorModsDir() || '', path.basename(src.id.slice(5)));
+      try { edPack = EditorPack.fromRpf(file); } catch (e) {
+        if (e.code !== rpf.NEED_KEYS) throw e;
+        await skyCtx().unlock();
+        edPack = EditorPack.fromRpf(file);
+      }
+    } else if (src && src.id) edPack = EditorPack.installed(mgr, src.id);
     else {
       let p = src && src.path;
       if (!p) {
@@ -272,8 +284,40 @@ app.whenReady().then(() => {
     sky = { obj: got.obj, rel: got.rel, label: got.label, out: null };
     return { label: got.label, rel: got.rel, textures: got.obj.describe(), skyIndex: got.obj.skyIndex() };
   });
+  // The sky picture the editor preview draws: the open pack's own skydome.ytd, or the one
+  // your game uses (mods folder, then citizen, then GTA V). GTA adds it to the sky scaled
+  // by the timecycle's stars intensity, which is how picture-sky packs paint their sky.
+  const skyPics = new Map();
+  handle('sky:picture', async (where) => {
+    const key = where === 'pack' ? 'pack:' + (edPack ? edPack.where : '') : 'game';
+    const hit = skyPics.get(key);
+    if (hit && Date.now() - hit.at < 60000) return hit.value;
+    let got = null;
+    if (where === 'pack') {
+      if (!edPack) return null;
+      try { got = edPack.sky(); } catch (e) {
+        if (e.code !== rpf.NEED_KEYS) throw e;
+        await skyCtx().unlock(); edPack._sky = undefined; got = edPack.sky();
+      }
+    } else {
+      const ctx = { ...skyCtx(), pack: null };
+      for (const src of skySources(ctx)) {
+        try { got = await openSkySource(src, ctx); } catch (e) { got = null; }
+        if (got) break;
+      }
+    }
+    let value = null;
+    if (got) {
+      const i = got.obj.skyIndex();
+      const t = got.obj.describe(true)[i];
+      if (t) value = { label: got.label, name: t.name, width: t.width, height: t.height, format: t.format, data: t.data };
+    }
+    skyPics.set(key, { at: Date.now(), value });
+    return value;
+  });
   handle('sky:apply', (index, data) => {
     if (!sky) throw new Error('Open a sky texture first.');
+    skyPics.clear();
     sky.out = sky.obj.replace(index, Buffer.from(data));
     // FiveM loads the sky from citizen/platform/textures/skydome.ytd. When the sky came
     // from an RPF, write that too, so the picture shows whichever one the game uses.
@@ -298,6 +342,8 @@ app.whenReady().then(() => {
   handle('world:setMountains', (opts) => worldCall(() => world.setMountains(opts)));
   handle('world:pedLod', () => worldCall(() => world.pedLod()));
   handle('world:setPedLod', (on) => worldCall(() => world.setPedLod(on)));
+  handle('world:clouds', () => worldCall(() => world.stillClouds()));
+  handle('world:setClouds', (on) => worldCall(() => world.setStillClouds(on)));
   handle('world:snow', () => worldCall(() => world.snow()));
   handle('world:setSnow', (amount) => worldCall(() => world.setSnow(amount)));
   handle('world:visual', () => worldCall(() => world.visualSettings()));

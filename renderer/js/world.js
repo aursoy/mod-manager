@@ -74,6 +74,19 @@ function snowCard(sn) {
   </div>`;
 }
 
+function cloudsCard(c) {
+  if (!c || !c.available) {
+    return `<div class="card tweak unset" data-world="clouds"><div class="tweak-top"><div class="tweak-icon">${icon('cloud')}</div>
+      <div><span class="big-state">Not found</span><h3>Still clouds</h3><p>Link your citizen folder first.</p></div></div></div>`;
+  }
+  return `<div class="card tweak ${c.on ? 'on' : ''}" data-world="clouds">
+    <div class="tweak-top"><div class="tweak-icon"><div class="wave"></div>${icon('cloud')}</div>
+      <div><span class="big-state">${c.on ? 'Still' : 'Moving'}</span><h3>Still clouds</h3>
+      <p>The clouds stop drifting and spinning across the sky. Works with any graphics pack.</p></div></div>
+    <div class="state">${seg(c.on, !c.on, 'Still', 'Moving')}<span></span></div>
+  </div>`;
+}
+
 function vsCard(v) {
   if (!v || !v.available) return '';
   return `<div class="card vs-card span-2" id="vs-card">
@@ -114,18 +127,19 @@ async function setMountains(opts, btn) {
 
 export async function refreshWorld() {
   const grid = $('#world-grid');
-  const [tweaks, m, p, sn, v] = await Promise.all([
+  const [tweaks, m, p, sn, cl, v] = await Promise.all([
     api.call('tweaks:list').catch(() => []),
     api.call('world:mountains').catch(() => null),
     api.call('world:pedLod').catch(() => null),
     api.call('world:snow').catch(() => null),
+    api.call('world:clouds').catch(() => null),
     api.call('world:visual').catch(() => null),
   ]);
   const own = tweaks.filter((t) => t.kind !== 'pack');
   const water = own.find((t) => t.id === 'water');
   vs.entries = v && v.entries ? v.entries : [];
   vs.edits = {};
-  grid.innerHTML = (water ? tweakCard(water) : '') + pedCard(p) + mountainsCard(m) + snowCard(sn) + own.filter((t) => t.id !== 'water').map(tweakCard).join('') + vsCard(v);
+  grid.innerHTML = (water ? tweakCard(water) : '') + pedCard(p) + mountainsCard(m) + snowCard(sn) + cloudsCard(cl) + own.filter((t) => t.id !== 'water').map(tweakCard).join('') + vsCard(v);
   stagger(grid);
   requestAnimationFrame(() => $$('.seg', grid).forEach(syncSeg));
   $$('input[type=range]', grid).forEach(fillRange);
@@ -195,6 +209,20 @@ export async function refreshWorld() {
     $$('.seg button', sc).forEach((b) => (b.onclick = () => apply(b.dataset.v === 'on')));
     amt.addEventListener('input', () => { $('#snow-val').textContent = amt.value + '%'; });
     amt.addEventListener('change', () => { if (sn.on) apply(true); });
+  }
+
+  // still clouds
+  const cc = $('[data-world=clouds]', grid);
+  if (cl && cl.available) {
+    $$('.seg button', cc).forEach((b) => (b.onclick = async () => {
+      const on = b.dataset.v === 'on';
+      if (on === cl.on) return;
+      try {
+        const r = await api.call('world:setClouds', on);
+        notify.success(r.on ? 'Clouds stopped' : 'Clouds moving again', r.on ? 'The clouds stay where they are. Restart FiveM to see it.' : 'clouds.xml is back to how it was.');
+      } catch (e) { notify.error('Could not change the clouds', e.message); }
+      refreshWorld();
+    }));
   }
 
   // visual settings editor
