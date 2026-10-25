@@ -317,7 +317,7 @@ async function refreshAiLink() {
   const sel = $('#ai-model');
   if (c.model && ![...sel.options].some((o) => o.value === c.model)) sel.add(new Option(c.model, c.model));
   sel.value = c.model || '';
-  $('#ai-state').textContent = c.on ? 'On for the AI chat in Graphics' + (c.provider ? ' · ' + c.provider : '') + (c.model ? ' · ' + c.model : '') : 'Powers the AI chat in Graphics. Paste an API key from any AI.';
+  $('#ai-state').textContent = c.on ? 'On for Graphics AI and Mod Maker' + (c.provider ? ' · ' + c.provider : '') + (c.model ? ' · ' + c.model : '') : 'Powers Graphics AI and Mod Maker. Paste an API key from any AI, or an AI router like OmniRoute.';
   $('#ai-tag').textContent = c.on ? 'On' : 'Off';
   $('#ai-tag').classList.toggle('solid', c.on);
 }

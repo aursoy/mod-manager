@@ -14,7 +14,7 @@ const { findGtaDirs, DEFAULT_REL: SKY_REL } = require('./src/core/skytex');
 const { openSkySource, skySources } = require('./src/core/skysource');
 const { listSources, openSource, openFiles } = require('./src/core/texsource');
 const { WorldFiles } = require('./src/core/worldfiles');
-const { askPackAi, askJson, listModels, provider: aiProvider } = require('./src/core/packai');
+const { askPackAi, askJson, findGateway, listModels, provider: aiProvider } = require('./src/core/packai');
 const { EditorPack, modsPacks } = require('./src/core/editorpack');
 const { MOD_SCHEMA, MOD_SYSTEM, modContext, userMessage, buildMod, modRpf } = require('./src/core/modmaker');
 const { readFileFrom, findInFile } = require('./src/core/rpfscan');
@@ -524,7 +524,18 @@ app.whenReady().then(() => {
     mgr.save();
     return aiPublic();
   });
-  handle('ai:models', () => listModels(aiCfg()));
+  handle('ai:models', async () => {
+    const c = aiCfg();
+    try { return await listModels(c); } catch (e) {
+      // no link given: the key may be for an AI router on this PC (OmniRoute, LiteLLM, LM Studio, Ollama)
+      if (c.url) throw e;
+      const g = await findGateway(c.key);
+      if (!g) throw new Error(e.message + ' If your key is from an AI router (OmniRoute, LiteLLM...), press "API link" and paste its address, e.g. http://localhost:20128/v1');
+      mgr.state.ai = { ...mgr.state.ai, url: g.url, model: '' };
+      mgr.save();
+      return listModels(aiCfg());
+    }
+  });
   handle('ai:ask', (input) => askPackAi(aiCfg(), input));
   handle('ai:test', async () => (await askPackAi(aiCfg(), { text: 'pvp pack, no fog', spec: null })).reply);
 
