@@ -30,8 +30,8 @@ let sky = null;     // sky texture being replaced: { ytd, rel, label, out }
 const sounds = new SoundPack();
 const discord = new DiscordRpc();
 const startedAt = Date.now();
-// The app's own Discord application (discord.com/developers). With it set, everyone's
-// Discord profile shows up by itself; a player can also enter their own in the profile.
+// The app's own Discord application (discord.com/developers), set once by whoever builds
+// the app. With it, everyone's Discord profile shows up by itself; players never enter anything.
 const DISCORD_APP_ID = String(process.env.KT_DISCORD_APP_ID || require('./package.json').discordAppId || '');
 
 function createWindow() {
@@ -457,9 +457,10 @@ app.whenReady().then(() => {
     return 'data:image/' + ext + ';base64,' + fs.readFileSync(f).toString('base64');
   });
   handle('discord:connect', async (clientId) => {
-    const id = String(clientId || mgr.getProfile().discordClientId || DISCORD_APP_ID);
+    const id = String(DISCORD_APP_ID || mgr.getProfile().discordClientId || '');
+    if (!id) throw new Error('Discord is not set up in this build of the app.');
     const user = await discord.connect(id);
-    mgr.setProfile({ discordClientId: id === DISCORD_APP_ID ? '' : id, discord: user, discordOff: false });
+    mgr.setProfile({ discord: user, discordOff: false });
     discord.setActivity('Modding FiveM', 'Kt Mod Manager', startedAt);
     return user;
   });
@@ -467,7 +468,7 @@ app.whenReady().then(() => {
   // Connects by itself: at start, and again every 30 s while Discord is closed.
   const autoDiscord = async () => {
     const p = mgr.getProfile();
-    const id = p.discordClientId || DISCORD_APP_ID;
+    const id = DISCORD_APP_ID || p.discordClientId;
     if (discord.sock || discord.busy || !id || p.discordOff) return;
     discord.busy = true;
     try {

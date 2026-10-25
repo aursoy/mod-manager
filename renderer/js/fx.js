@@ -126,6 +126,31 @@ export function initInteractions() {
   document.querySelectorAll('input[type=range]').forEach(fillRange);
 }
 
+// 3D tilt (Settings): the sidebar items and the tabs inside pages tilt toward the
+// cursor like little cards, with a soft sheen. Only while body.tilt is set.
+const TILT = '#nav a, .gfx-tabs button, .tabs .tab, .view-tabs .vt';
+export function initTilt() {
+  let cur = null;
+  const reset = (el) => { el.style.removeProperty('--rx'); el.style.removeProperty('--ry'); el.style.removeProperty('--to'); el.classList.remove('tilting'); };
+  document.addEventListener('pointermove', (e) => {
+    if (!document.body.classList.contains('tilt') || document.body.classList.contains('reduce-motion')) return;
+    const el = e.target.closest && e.target.closest(TILT);
+    if (cur && cur !== el) { reset(cur); cur = null; }
+    if (!el) return;
+    cur = el;
+    const r = el.getBoundingClientRect();
+    const x = (e.clientX - r.left) / r.width - 0.5, y = (e.clientY - r.top) / r.height - 0.5;
+    const k = Math.min(1, 160 / r.width); // wide items tilt less
+    el.style.setProperty('--ry', (x * 22 * k).toFixed(2) + 'deg');
+    el.style.setProperty('--rx', (-y * 26).toFixed(2) + 'deg');
+    el.style.setProperty('--tx', ((x + 0.5) * 100).toFixed(1) + '%');
+    el.style.setProperty('--ty', ((y + 0.5) * 100).toFixed(1) + '%');
+    el.style.setProperty('--to', '1');
+    el.classList.add('tilting');
+  }, { passive: true });
+  document.addEventListener('pointerleave', () => { if (cur) { reset(cur); cur = null; } });
+}
+
 export function fillRange(el) {
   const p = ((el.value - el.min) / (el.max - el.min)) * 100;
   el.style.setProperty('--p', p + '%');

@@ -1,10 +1,11 @@
 import { hydrateIcons, icon } from './icons.js';
 import { notify, initDrawer, settings as notifySettings, navSound } from './notify.js';
-import { initBackground, initInteractions, syncSeg, countUp, stagger, busy, fillRange, fxState } from './fx.js';
+import { initBackground, initInteractions, initTilt, syncSeg, countUp, stagger, busy, fillRange, fxState } from './fx.js';
 import { initKeys } from './keys.js';
 import { initStudio, refreshStudio, handleDrop as studioDrop } from './tcstudio.js';
 import { initLook, setBackgroundFile } from './look.js';
 import { startTour, tourSeen } from './tour.js';
+import { initDropdowns } from './dropdown.js';
 import { refreshWorld, initWorldPage } from './world.js';
 
 import { initPages, refreshMods, refreshCache, refreshProfile, addModFiles } from './pages.js';
@@ -290,7 +291,7 @@ function initBackups() {
 }
 
 // ---------- settings ----------
-const prefs = { sound: true, reduceMotion: false, bg: true };
+const prefs = { sound: true, reduceMotion: false, bg: true, tilt: true };
 function loadPrefs() {
   try { Object.assign(prefs, JSON.parse(localStorage.getItem('kt.prefs') || '{}')); } catch (e) { /* ignore */ }
   applyPrefs();
@@ -300,6 +301,8 @@ function applyPrefs() {
   fxState.bg = prefs.bg;
   fxState.kick && fxState.kick();
   document.body.classList.toggle('reduce-motion', prefs.reduceMotion);
+  document.body.classList.toggle('tilt', !!prefs.tilt);
+  requestAnimationFrame(() => { movePill(); $$('.seg').forEach(syncSeg); });
   $$('[data-setting]').forEach((s) => s.classList.toggle('on', !!prefs[s.dataset.setting]));
 }
 async function refreshAiLink() {
@@ -443,6 +446,8 @@ async function boot() {
   safe('initKeys', initKeys);
   safe('initPages', () => initPages({ modal, go }));
   safe('refreshProfile', () => { try { refreshProfile(); } catch (e) { console.error(e); } });
+  safe('dropdowns', () => initDropdowns());
+  safe('tilt', initTilt);
   safe('navMotion', initNavMotion);
   safe('nav', () => {
     $$('#nav a').forEach((a) => (a.onclick = () => go(a.dataset.page)));

@@ -130,7 +130,7 @@ export async function refreshProfile() {
   profile = await api.call('profile:get');
   paintAvatar($('#pf-avatar'), profile);
   $('#pf-name').textContent = nameOf(profile) || 'Set up profile';
-  $('#pf-sub').textContent = profile.discord ? '@' + profile.discord.username : 'Discord not open';
+  $('#pf-sub').textContent = profile.discord ? '@' + profile.discord.username : profile.discordBuiltIn ? 'Discord not open' : 'Local profile';
   $('#pf-dot').classList.toggle('live', !!profile.discordLive);
 }
 
@@ -161,19 +161,15 @@ async function openProfile() {
     const d = $('#pm-discord', back);
     d.innerHTML = p.discord
       ? `<div class="pm-user"><img src="${esc(p.discord.avatar)}" alt="" /><div><b>${esc(p.discord.globalName)}</b><small>@${esc(p.discord.username)}</small></div><button class="btn ghost sm" id="pm-unlink" style="margin-left:auto">${icon('x')}Unlink</button></div>`
-      : p.discordBuiltIn
-        ? `<div class="row-between"><small class="fine">Open Discord and it connects by itself.</small><button class="btn primary sm" id="pm-connect">${icon('link')}Connect now</button></div>`
-        : `<label class="field"><span>Application ID</span><input type="text" id="pm-cid" placeholder="e.g. 1234567890123456789" value="${esc(p.discordClientId || '')}" /></label>
-           <div class="row-between" style="margin-top:12px"><button class="link-btn" id="pm-dev">Get one</button><button class="btn primary sm" id="pm-connect">${icon('link')}Connect</button></div>`;
+      : `<div class="row-between"><small class="fine">Open Discord and your profile shows up here by itself.</small>${p.discordOff ? `<button class="btn primary sm" id="pm-connect">${icon('link')}Connect</button>` : ''}</div>`;
     const un = $('#pm-unlink', back);
     if (un) un.onclick = async () => { await api.call('discord:disconnect'); p.discord = null; paint(); refreshProfile(); };
     const con = $('#pm-connect', back);
     if (con) con.onclick = async () => {
       busy(con, true);
       try {
-        const cid = $('#pm-cid', back) ? $('#pm-cid', back).value.trim() : '';
-        p.discord = await api.call('discord:connect', cid);
-        if (cid) p.discordClientId = cid;
+        p.discord = await api.call('discord:connect');
+        p.discordOff = false;
         notify.success('Discord connected', 'Signed in as @' + p.discord.username);
         paint();
         refreshProfile();
@@ -188,7 +184,6 @@ async function openProfile() {
     catch (e) { notify.error('Avatar not set', e.message); }
   };
   $('#pm-avatar-clear', back).onclick = () => { p.avatar = ''; paint(); };
-  back.addEventListener('click', (e) => { if (e.target.id === 'pm-dev') api.call('shell:external', 'https://discord.com/developers/applications'); });
   back.onclick = (e) => { if (e.target === back) close(); };
   $('[data-r="0"]', back).onclick = close;
   $('[data-r="1"]', back).onclick = async () => {
