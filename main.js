@@ -28,6 +28,9 @@ let sky = null;     // sky texture being replaced: { ytd, rel, label, out }
 const sounds = new SoundPack();
 const discord = new DiscordRpc();
 const startedAt = Date.now();
+// The app's own Discord application (discord.com/developers). With it set, everyone's
+// Discord profile shows up by itself; a player can also enter their own in the profile.
+const DISCORD_APP_ID = String(process.env.KT_DISCORD_APP_ID || require('./package.json').discordAppId || '');
 
 function createWindow() {
   win = new BrowserWindow({
@@ -387,7 +390,7 @@ app.whenReady().then(() => {
   handle('look:clear', () => look.clear());
 
   // ----- profile / discord -----
-  handle('profile:get', () => ({ ...mgr.getProfile(), discordLive: !!discord.sock }));
+  handle('profile:get', () => ({ ...mgr.getProfile(), discordLive: !!discord.sock, discordBuiltIn: !!DISCORD_APP_ID }));
   handle('profile:set', (patch) => mgr.setProfile(patch));
   handle('profile:pickAvatar', async () => {
     const r = await dialog.showOpenDialog(win, { title: 'Choose avatar', properties: ['openFile'], filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp'] }] });
@@ -398,12 +401,29 @@ app.whenReady().then(() => {
     return 'data:image/' + ext + ';base64,' + fs.readFileSync(f).toString('base64');
   });
   handle('discord:connect', async (clientId) => {
-    const user = await discord.connect(clientId);
-    mgr.setProfile({ discordClientId: String(clientId), discord: user });
+    const id = String(clientId || mgr.getProfile().discordClientId || DISCORD_APP_ID);
+    const user = await discord.connect(id);
+    mgr.setProfile({ discordClientId: id === DISCORD_APP_ID ? '' : id, discord: user, discordOff: false });
     discord.setActivity('Modding FiveM', 'Kt Mod Manager', startedAt);
     return user;
   });
-  handle('discord:disconnect', () => { discord.disconnect(); return mgr.setProfile({ discord: null }); });
+  handle('discord:disconnect', () => { discord.disconnect(); return mgr.setProfile({ discord: null, discordOff: true }); });
+  // Connects by itself: at start, and again every 30 s while Discord is closed.
+  const autoDiscord = async () => {
+    const p = mgr.getProfile();
+    const id = p.discordClientId || DISCORD_APP_ID;
+    if (discord.sock || discord.busy || !id || p.discordOff) return;
+    discord.busy = true;
+    try {
+      const user = await discord.connect(id);
+      mgr.setProfile({ discord: user });
+      discord.setActivity('Modding FiveM', 'Kt Mod Manager', startedAt);
+    } catch (e) { /* Discord not open yet */ }
+    discord.busy = false;
+    if (win && !win.isDestroyed()) win.webContents.send('profile:changed');
+  };
+  setTimeout(autoDiscord, 1500);
+  setInterval(autoDiscord, 30000);
   handle('discord:activity', (details, state) => discord.setActivity(details, state, startedAt));
 
   // ----- gun lab -----

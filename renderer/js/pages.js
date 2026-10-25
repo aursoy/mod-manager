@@ -165,7 +165,7 @@ export async function refreshProfile() {
   profile = await api.call('profile:get');
   paintAvatar($('#pf-avatar'), profile);
   $('#pf-name').textContent = nameOf(profile) || 'Set up profile';
-  $('#pf-sub').textContent = profile.discord ? '@' + profile.discord.username : (profile.name ? 'Local profile' : 'Connect Discord');
+  $('#pf-sub').textContent = profile.discord ? '@' + profile.discord.username : 'Discord not open';
   $('#pf-dot').classList.toggle('live', !!profile.discordLive);
 }
 
@@ -184,8 +184,6 @@ async function openProfile() {
       <label class="field"><span>Display name</span><input type="text" id="pm-name" maxlength="32" placeholder="${esc((p.discord && p.discord.globalName) || 'Your name')}" value="${esc(p.name || '')}" /></label>
       <div class="pm-sec">
         <h4>${icon('discord')}Discord</h4>
-        <p>Shows your Discord name and avatar here, and sets your Discord status to "Kt Mod Manager". Needs the Discord app open and a free Application ID from the
-          <button class="link-btn" id="pm-dev">Discord Developer Portal</button> (New Application → copy Application ID).</p>
         <div id="pm-discord"></div>
       </div>
       <div class="row-end"><button class="btn ghost" data-r="0">Close</button><button class="btn primary" data-r="1">${icon('check')}Save</button></div>
@@ -198,16 +196,19 @@ async function openProfile() {
     const d = $('#pm-discord', back);
     d.innerHTML = p.discord
       ? `<div class="pm-user"><img src="${esc(p.discord.avatar)}" alt="" /><div><b>${esc(p.discord.globalName)}</b><small>@${esc(p.discord.username)}</small></div><button class="btn ghost sm" id="pm-unlink" style="margin-left:auto">${icon('x')}Unlink</button></div>`
-      : `<label class="field"><span>Application ID</span><input type="text" id="pm-cid" placeholder="e.g. 1234567890123456789" value="${esc(p.discordClientId || '')}" /></label>
-         <div class="row-end" style="margin-top:12px"><button class="btn primary sm" id="pm-connect">${icon('link')}Connect Discord</button></div>`;
+      : p.discordBuiltIn
+        ? `<div class="row-between"><small class="fine">Open Discord and it connects by itself.</small><button class="btn primary sm" id="pm-connect">${icon('link')}Connect now</button></div>`
+        : `<label class="field"><span>Application ID</span><input type="text" id="pm-cid" placeholder="e.g. 1234567890123456789" value="${esc(p.discordClientId || '')}" /></label>
+           <div class="row-between" style="margin-top:12px"><button class="link-btn" id="pm-dev">Get one</button><button class="btn primary sm" id="pm-connect">${icon('link')}Connect</button></div>`;
     const un = $('#pm-unlink', back);
     if (un) un.onclick = async () => { await api.call('discord:disconnect'); p.discord = null; paint(); refreshProfile(); };
     const con = $('#pm-connect', back);
     if (con) con.onclick = async () => {
       busy(con, true);
       try {
-        p.discord = await api.call('discord:connect', $('#pm-cid', back).value.trim());
-        p.discordClientId = $('#pm-cid', back).value.trim();
+        const cid = $('#pm-cid', back) ? $('#pm-cid', back).value.trim() : '';
+        p.discord = await api.call('discord:connect', cid);
+        if (cid) p.discordClientId = cid;
         notify.success('Discord connected', 'Signed in as @' + p.discord.username);
         paint();
         refreshProfile();
@@ -222,7 +223,7 @@ async function openProfile() {
     catch (e) { notify.error('Avatar not set', e.message); }
   };
   $('#pm-avatar-clear', back).onclick = () => { p.avatar = ''; paint(); };
-  $('#pm-dev', back).onclick = () => api.call('shell:external', 'https://discord.com/developers/applications');
+  back.addEventListener('click', (e) => { if (e.target.id === 'pm-dev') api.call('shell:external', 'https://discord.com/developers/applications'); });
   back.onclick = (e) => { if (e.target === back) close(); };
   $('[data-r="0"]', back).onclick = close;
   $('[data-r="1"]', back).onclick = async () => {
@@ -247,4 +248,5 @@ export function initPages(ctx) {
   $('#cache-refresh').onclick = refreshCache;
   $('#cache-clean').onclick = (e) => cleanCache(e.currentTarget);
   $('#profile-card').onclick = openProfile;
+  if (api.onProfile) api.onProfile(() => refreshProfile().catch(() => {}));
 }
