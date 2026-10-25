@@ -66,7 +66,9 @@ ${names.map(cycle).join('\n')}
 }
 
 // Minimal gen8 texture dictionary (.ytd file bytes) with one DXT1 texture per name.
-function buildYtd(names, w = 64, h = 64) {
+/** A texture dictionary resource. { ypt: true } makes a particle file (core.ypt style)
+ *  with the dictionary behind ptxFxList.TextureDictionary (0x20). */
+function buildYtd(names, w = 64, h = 64, { ypt = false } = {}) {
   const zlib = require('zlib');
   const size = Math.max(8, (w / 4) * (h / 4) * 8);
   // gfx page: the smallest 0x200 << n that holds every texture
@@ -74,12 +76,14 @@ function buildYtd(names, w = 64, h = 64) {
   while ((0x200 << ss) < size * names.length) ss++;
   const sys = Buffer.alloc(0x2000);
   const gfx = Buffer.alloc(0x200 << ss);
-  const S = 0x50000000, G = 0x60000000;
-  sys.writeUInt32LE(S + 0x40, 0x30); sys.writeUInt16LE(names.length, 0x38); sys.writeUInt16LE(names.length, 0x3a);
+  const B = ypt ? 0x400 : 0;
+  const S = 0x50000000 + B, G = 0x60000000;
+  if (ypt) sys.writeUInt32LE(0x50000000 + B, 0x20);
+  sys.writeUInt32LE(S + 0x40, B + 0x30); sys.writeUInt16LE(names.length, B + 0x38); sys.writeUInt16LE(names.length, B + 0x3a);
   names.forEach((name, i) => {
-    const t = 0x100 + i * 0x100;
-    sys.writeUInt32LE(S + t, 0x40 + i * 8);
-    sys.writeUInt32LE(S + t + 0xc0, t + 0x28);
+    const t = B + 0x100 + i * 0x100;
+    sys.writeUInt32LE(0x50000000 + t, B + 0x40 + i * 8);
+    sys.writeUInt32LE(0x50000000 + t + 0xc0, t + 0x28);
     sys.writeUInt16LE(w, t + 0x50); sys.writeUInt16LE(h, t + 0x52); sys.writeUInt16LE(1, t + 0x54);
     sys.writeUInt32LE(0x31545844, t + 0x58); sys[t + 0x5d] = 1;
     sys.writeUInt32LE(G + i * size, t + 0x70);

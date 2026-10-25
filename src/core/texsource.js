@@ -9,7 +9,7 @@
 //   mods       inside an RPF already in FiveM.app/mods -> edited RPF replaces it (backed up)
 //   citizen    loose in citizen
 //   game       GTA V's own copy                       -> new mods/kt_<kind>.rpf (+ loose copy for textures/)
-//   files      the RPF the player picked (Blood FX): edited in place, installed into mods
+//   files      the RPF the player picked (Blood FX: .ytd, or core.ypt particles): edited in place, installed into mods
 //              under its own name (replacing it, backed up, when it is already there)
 
 const fs = require('fs');
@@ -31,9 +31,10 @@ function cloudName(file) {
 }
 
 function bloodName(file) {
-  const n = path.basename(file, '.ytd').toLowerCase();
+  const n = path.basename(file).replace(/\.(ytd|ypt|ydr)$/i, '').toLowerCase();
   if (n === 'fxdecal') return 'Blood splats & decals';
   if (n === 'peddamagedecals') return 'Blood on players';
+  if (n === 'core') return 'Blood sprays (particles)';
   if (/blood/.test(n)) return 'Blood (' + n + ')';
   return n;
 }
@@ -187,32 +188,46 @@ async function openFiles(kind, paths, ctx) {
   return copySource(K, found, paths.length === 1 ? path.basename(paths[0]) : paths.length + ' files');
 }
 
-/** One RPF the player chose. Its blood textures (by name) are listed, or every
- *  texture dictionary in it when none has a known name: the player said this is the one. */
+/** One RPF the player chose. GTA keeps blood in fxdecal.ytd / peddamagedecals.ytd and
+ *  in the particle file core.ypt (blood sprays); blood mods ship any of those, at any depth.
+ *  Blood-named files come first; else every texture file in the archive (the player said
+ *  this is the one). In a particle file only the blood textures are shown, when it has any. */
+const BLOOD_TEX = /blood|gore|splat|bld|wound|ped_?dam|gunshot|bullet|decal/i;
+const ANY_TEX = (n) => /\.(ytd|ypt|ydr)$/i.test(n);
+
 async function pickedRpf(K, file, ctx) {
   const name = path.basename(file);
   if (fs.statSync(file).size > MAX_RPF) throw new Error(name + ' is too big to edit here.');
   const buf = fs.readFileSync(file);
-  const anyYtd = (n) => /\.ytd$/i.test(n);
   return withKeys(() => {
-    let t;
-    try { t = new RpfTextures(buf, name, K.test); } catch (e) {
-      if (e.code === rpf.NEED_KEYS) throw e;
-      try { t = new RpfTextures(buf, name, anyYtd); } catch (e2) {
-        if (e2.code === rpf.NEED_KEYS) throw e2;
-        throw new Error(name + ' has no textures (.ytd) inside. Pick the RPF your blood FX came in.');
-      }
+    const root = rpf.readRpf(buf, name);
+    let t = null;
+    for (const test of [(n) => K.test(n) || /^core\.ypt$/i.test(n), ANY_TEX]) {
+      try { t = new RpfTextures(null, name, test, root); break; } catch (e) { if (e.code === rpf.NEED_KEYS) throw e; }
     }
+    if (!t) throw new Error(name + ' has no textures this app can read. Inside: ' + describeTree(root) + '.');
     const rel = '@mods/' + name;
     return {
       label: name,
-      items: t.hits.map((h, i) => ({ key: i, name: K.name(h.path), file: h.entry.name, path: h.path, ytd: t.ytds[i] })),
+      items: t.hits.map((h, i) => {
+        const ytd = t.ytds[i];
+        const blood = /\.ypt$/i.test(h.entry.name) ? ytd.textures.map((x, j) => (BLOOD_TEX.test(x.name) ? j : -1)).filter((j) => j >= 0) : [];
+        return { key: i, name: K.name(h.path), file: h.entry.name, path: h.path, ytd, only: blood.length ? blood : null };
+      }),
       replace(key, ti, data) { t.replace(key, ti, data); },
       outputs() { return t.edited ? { [rel]: t.bytes() } : {}; },
       /** "Save to folder": the edited RPF itself */
       files() { return t.edited ? [{ name, bytes: t.bytes() }] : []; },
     };
   }, ctx.unlock);
+}
+
+/** "x64/ (2 files), fxmanifest.lua" style summary of an archive, for error messages. */
+function describeTree(root) {
+  const names = [];
+  rpf.walk(root, (e, p) => names.push(p));
+  if (!names.length) return 'nothing';
+  return names.slice(0, 6).join(', ') + (names.length > 6 ? ' and ' + (names.length - 6) + ' more' : '');
 }
 
 module.exports = { listSources, openSource, openFiles, cloudName, bloodName, KINDS };

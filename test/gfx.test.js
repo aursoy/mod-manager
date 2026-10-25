@@ -773,3 +773,33 @@ test('blood FX: the RPF the player picks is edited in place and goes into mods u
   assert.ok(at(again).every((b) => b === 0x22), 'the edit is in the installed RPF');
   assert.ok(!at(await tex.openFiles('blood', [file], ctx)).every((b) => b === 0x22), 'the picked file itself is untouched');
 });
+
+test('blood FX: an RPF whose blood is in core.ypt (particle textures) opens, shows only the blood textures, and installs', async () => {
+  const { m, cit } = makeCitizen();
+  const dl = fs.mkdtempSync(path.join(os.tmpdir(), 'kt-dl-sev-'));
+  const file = path.join(dl, 'Severance.rpf');
+  const inner = rpf.writeRpf({ type: 'dir', name: '', children: [{ type: 'dir', name: 'x64', children: [{ type: 'dir', name: 'data', children: [{ type: 'dir', name: 'effects', children: [{ type: 'dir', name: 'ptfx', children: [
+    resOf('core.ypt', buildYtd(['fire_flame', 'blood_spray_01', 'smoke_puff', 'blood_mist'], 64, 64, { ypt: true })),
+  ] }] }] }] }] });
+  fs.writeFileSync(file, rpf.writeRpf({ type: 'dir', name: '', children: [binOf('update.rpf', inner)] }));
+  const ctx = { pack: null, mgr: m, gtaDirs: () => [], unlock: null };
+  const src = await tex.openFiles('blood', [file], ctx);
+  assert.strictEqual(src.items.length, 1);
+  assert.strictEqual(src.items[0].name, 'Blood sprays (particles)');
+  assert.deepStrictEqual(src.items[0].only.map((i) => src.items[0].ytd.textures[i].name), ['blood_spray_01', 'blood_mist']);
+  src.replace(0, 1, new Uint8Array(src.items[0].ytd.textures[1].dataSize).fill(0x55));
+  const out = src.outputs();
+  assert.deepStrictEqual(Object.keys(out), ['@mods/Severance.rpf']);
+  createPackWithTweaks(m, 'Custom blood FX', {}, {}, { extra: out }, (rel) => fs.readFileSync(m.absFor(rel)));
+  const again = await tex.openFiles('blood', [path.join(path.dirname(cit), 'mods', 'Severance.rpf')], ctx);
+  const d = again.items[0].ytd.describe(true);
+  assert.ok(d[1].data.every((b) => b === 0x55), 'the blood spray edit is in the installed RPF');
+  assert.ok(!d[0].data.every((b) => b === 0x55), 'other particle textures untouched');
+});
+
+test('blood FX: an RPF with no textures says what is inside it', async () => {
+  const { m } = makeCitizen();
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'kt-dl-none-')), 'empty.rpf');
+  fs.writeFileSync(file, rpf.writeRpf({ type: 'dir', name: '', children: [binOf('readme.txt', Buffer.from('hi'))] }));
+  await assert.rejects(tex.openFiles('blood', [file], { pack: null, mgr: m, gtaDirs: () => [], unlock: null }), /Inside: readme\.txt/);
+});
