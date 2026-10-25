@@ -47,6 +47,7 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
+      autoplayPolicy: 'no-user-gesture-required', // UI sounds play from the first click
     },
   });
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));

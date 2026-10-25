@@ -11,10 +11,36 @@ let audio = null;
 
 export const settings = { sound: true };
 
+function ctx() {
+  audio = audio || new AudioContext();
+  if (audio.state === 'suspended') audio.resume().catch(() => {});
+  return audio;
+}
+
+/** Soft click for moving between pages (same switch as notification sounds). */
+export function navSound() {
+  if (!settings.sound) return;
+  try {
+    const a = ctx();
+    const t = a.currentTime;
+    const o = a.createOscillator();
+    const g = a.createGain();
+    o.type = 'triangle';
+    o.frequency.setValueAtTime(1180, t);
+    o.frequency.exponentialRampToValueAtTime(620, t + 0.06);
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.035, t + 0.004);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.09);
+    o.connect(g).connect(a.destination);
+    o.start(t);
+    o.stop(t + 0.1);
+  } catch (e) { /* audio unavailable */ }
+}
+
 function blip(type) {
   if (!settings.sound) return;
   try {
-    audio = audio || new AudioContext();
+    ctx();
     const t = audio.currentTime;
     const notes = { success: [660, 990], error: [220, 165], warning: [440, 330], info: [520, 520], loading: [400] }[type] || [520];
     notes.forEach((f, i) => {

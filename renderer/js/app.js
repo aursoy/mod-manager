@@ -1,9 +1,10 @@
 import { hydrateIcons, icon } from './icons.js';
-import { notify, initDrawer, settings as notifySettings } from './notify.js';
+import { notify, initDrawer, settings as notifySettings, navSound } from './notify.js';
 import { initBackground, initInteractions, syncSeg, countUp, stagger, busy, fillRange, fxState } from './fx.js';
 import { initKeys } from './keys.js';
 import { initStudio, refreshStudio, handleDrop as studioDrop } from './tcstudio.js';
 import { initLook, setBackgroundFile } from './look.js';
+import { startTour, tourSeen } from './tour.js';
 import { refreshWorld, initWorldPage } from './world.js';
 
 import { initPages, refreshMods, refreshCache, refreshProfile, addModFiles } from './pages.js';
@@ -72,6 +73,7 @@ export function modal({ title, text, confirm = 'Confirm', cancel = 'Cancel', inp
 // ---------- navigation ----------
 function go(page) {
   if (page === currentPage) return;
+  navSound();
   const prev = $(`.page[data-page="${currentPage}"]`);
   const next = $(`.page[data-page="${page}"]`);
   prev.classList.add('leaving');
@@ -99,9 +101,31 @@ function movePill() {
   const a = $('#nav a.active');
   $('.nav-pill').style.transform = `translateY(${a.offsetTop}px)`;
   $('.nav-pill').style.height = a.offsetHeight + 'px';
+  // the new page's icon gives a little hop
+  a.classList.remove('pop');
+  void a.offsetWidth;
+  a.classList.add('pop');
+}
+
+// Menu motion: items slide in at start, and a soft highlight glides to whatever you hover.
+function initNavMotion() {
+  const nav = $('#nav');
+  [...nav.children].filter((el) => el.matches('a, .nav-sec')).forEach((el, i) => el.style.setProperty('--n', i));
+  nav.classList.add('intro');
+  setTimeout(() => nav.classList.remove('intro'), 1400);
+  const hover = $('.nav-hover');
+  $$('#nav a').forEach((a) => a.addEventListener('pointerenter', () => {
+    hover.style.transform = `translateY(${a.offsetTop}px)`;
+    hover.style.height = a.offsetHeight + 'px';
+    hover.classList.toggle('on', !a.classList.contains('active'));
+  }));
+  nav.addEventListener('pointerleave', () => hover.classList.remove('on'));
+  nav.addEventListener('click', () => hover.classList.remove('on'));
 }
 
 function refreshPage(page) {
+  // placeholders in lists that have never been filled, so a page never opens blank
+  $$(`.page[data-page="${page}"] ul.list`).forEach((ul) => { if (!ul.children.length) ul.innerHTML = '<li class="skel"></li>'.repeat(3); });
   if (page === 'home') refreshHome();
   if (page === 'graphics') refreshStudio();
   if (page === 'world') refreshWorld();
@@ -279,6 +303,7 @@ function applyPrefs() {
   $$('[data-setting]').forEach((s) => s.classList.toggle('on', !!prefs[s.dataset.setting]));
 }
 function initSettings() {
+  $('#tour-replay').onclick = () => startTour({ go });
   $$('[data-setting]').forEach((s) => (s.onclick = () => {
     prefs[s.dataset.setting] = !prefs[s.dataset.setting];
     try { localStorage.setItem('kt.prefs', JSON.stringify(prefs)); } catch (e) { /* ignore */ }
@@ -372,6 +397,7 @@ async function boot() {
   safe('initKeys', initKeys);
   safe('initPages', () => initPages({ modal, go }));
   safe('refreshProfile', () => { try { refreshProfile(); } catch (e) { console.error(e); } });
+  safe('navMotion', initNavMotion);
   safe('nav', () => {
     $$('#nav a').forEach((a) => (a.onclick = () => go(a.dataset.page)));
     $$('[data-win]').forEach((b) => (b.onclick = () => api.call('win:' + b.dataset.win)));
@@ -401,6 +427,7 @@ async function boot() {
   await splashDone;
   clearTimeout(hardKill);
   killSplash();
+  if (!tourSeen()) setTimeout(() => startTour({ go }), 900);
 
   if (!info.citizenPath) {
     const found = await api.call('citizen:autodetect').catch(() => null);

@@ -791,3 +791,36 @@ body.custom-bg #bg { display: none; }
 .part-editor .seg { margin: 2px 0 12px; }
 .ctrl-row.tight.two { grid-template-columns: 1fr 1fr; }
 #layer-editor .seg { margin: 2px 0 12px; }
+
+/* ---------- menu motion ---------- */
+.nav-hover { position: absolute; left: 0; right: 0; top: 0; height: 40px; border-radius: 12px; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.06); opacity: 0; transition: transform .45s var(--spring), height .3s, opacity .25s; pointer-events: none; z-index: 0; }
+.nav-hover.on { opacity: 1; }
+#nav.intro a, #nav.intro .nav-sec { animation: navIn .7s var(--ease) both; animation-delay: calc(var(--n, 0) * 45ms + 150ms); }
+@keyframes navIn { from { opacity: 0; transform: translateX(-18px); filter: blur(4px); } }
+#nav a.pop svg.ic { animation: iconPop .55s var(--spring); }
+@keyframes iconPop { 0% { transform: scale(1); } 35% { transform: scale(1.35) rotate(-10deg); } 70% { transform: scale(.92) rotate(4deg); } 100% { transform: none; } }
+#nav a.active span { animation: navLabel .5s var(--ease); }
+@keyframes navLabel { from { letter-spacing: .06em; opacity: .4; } }
+.page.active .eyebrow { animation: eyebrowIn .7s var(--ease) both; }
+@keyframes eyebrowIn { from { opacity: 0; letter-spacing: .6em; } }
+.page.active .headline { animation: headIn .8s var(--ease) both .05s; }
+@keyframes headIn { from { clip-path: inset(-10% -5% 100% -5%); transform: translateY(14px); } to { clip-path: inset(-10% -5% -25% -5%); } }
+
+/* ---------- tutorial ---------- */
+.tour { position: fixed; inset: 0; z-index: 200; pointer-events: auto; opacity: 0; transition: opacity .35s var(--ease); }
+.tour.in { opacity: 1; }
+.tour.out { opacity: 0; pointer-events: none; }
+.tour-spot { position: fixed; border-radius: 16px; box-shadow: 0 0 0 9999px rgba(0,0,0,.72), 0 0 0 1px rgba(255,255,255,.5), 0 0 40px rgba(255,255,255,.18); transition: left .6s var(--spring), top .6s var(--spring), width .6s var(--spring), height .6s var(--spring); pointer-events: none; }
+.tour-card { position: fixed; left: 0; top: 0; width: 300px; padding: 18px; border-radius: 18px; background: #0b0b0b; border: 1px solid var(--line-2); box-shadow: 0 30px 80px rgba(0,0,0,.8); transition: transform .6s var(--spring); }
+.tour-card.swap .tour-title, .tour-card.swap .tour-text { animation: rise .45s var(--ease) both; }
+.tour-count { font-family: var(--mono); font-size: 10.5px; color: var(--ink-4); }
+.tour-title { display: block; font-size: 18px; font-weight: 800; letter-spacing: -.02em; margin: 6px 0 4px; }
+.tour-text { font-size: 13px; color: var(--ink-2); line-height: 1.5; margin-bottom: 16px; }
+.tour-foot { display: flex; align-items: center; gap: 8px; }
+.tour-dots { display: flex; gap: 5px; margin-right: auto; }
+.tour-dots i { width: 6px; height: 6px; border-radius: 99px; background: rgba(255,255,255,.2); transition: width .35s var(--ease), background .3s; }
+.tour-dots i.on { width: 18px; background: #fff; }
+
+/* lists show soft placeholders until their data arrives */
+.list li.skel { height: 58px; border-color: transparent; background: linear-gradient(90deg, rgba(255,255,255,.03) 25%, rgba(255,255,255,.07) 50%, rgba(255,255,255,.03) 75%) 0 0 / 300% 100%; animation: skel 1.2s linear infinite; }
+@keyframes skel { from { background-position: 100% 0; } to { background-position: -200% 0; } }
