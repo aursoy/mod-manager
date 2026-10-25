@@ -6,7 +6,7 @@ import { icon } from './icons.js';
 import { busy, syncSeg, fillRange } from './fx.js';
 import * as TC from './timecycle.js';
 import * as AI from './gfxai.js';
-import { drawScene } from './tcpreview.js';
+import { drawScene } from './scene3d.js';
 import { encode as encodeTex } from './dxt.js';
 import { cleanError } from './keys.js';
 import { createLab } from './cloudlab.js';
