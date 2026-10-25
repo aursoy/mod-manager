@@ -465,6 +465,7 @@
         <div class="aip">
           <div class="card aip-chat">
             <div class="aip-head"><div><h3>Describe your mod</h3><small>Your game's own files are the starting point.</small></div><button class="btn ghost sm" id="mk-new"><i data-icon="plus"></i>New mod</button></div>
+            <div class="ai-usage mini hidden" id="mk-usage"></div>
             <div class="aip-log" id="mk-log"></div>
             <div class="aip-chips" id="mk-chips">
               <button class="chip">Optimise my game for FPS</button>
@@ -481,9 +482,10 @@
             <small class="fine" id="mk-files"></small>
             <div class="row-end">
               <button class="btn ghost sm" id="mk-rpf" disabled><i data-icon="download"></i>Save as .rpf</button>
+              <button class="btn ghost sm" id="mk-tomods" disabled><i data-icon="folder-in"></i>Put in my mods folder</button>
               <button class="btn primary sm" id="mk-install" disabled><i data-icon="zap"></i>Install</button>
             </div>
-            <small class="fine">Install puts it in your game (switch it off any time on the Mods page). Save as .rpf gives you the same files at their game paths, to share or use in OpenIV.</small>
+            <small class="fine"><b>Install</b> puts it in your game through the app (switch it off on the Mods page). <b>Save as .rpf</b> makes one file to send to your mates: they drop it in <code>FiveM.app/mods</code>, no app needed. <b>Put in my mods folder</b> does that for you, so you can test it first (use it or Install, not both).</small>
           </div>
         </div>
       </section>
@@ -538,6 +540,7 @@
             </div>
             <div class="field hidden" id="ai-url-wrap"><span>API link</span><input type="text" id="ai-url" placeholder="Only if your AI isn't found from the key, e.g. http://localhost:11434/v1" spellcheck="false" /></div>
             <div class="row-between"><button class="link-btn" id="ai-more">Using another AI? Add its link</button><div class="row-end"><button class="btn ghost sm" id="ai-off"><i data-icon="x"></i>Turn off</button><button class="btn primary sm" id="ai-save"><i data-icon="check"></i>Save &amp; test</button></div></div>
+            <div class="ai-usage hidden" id="ai-usage"></div>
           </div>
           <div class="card setting"><div><b>Tutorial</b><small>Quick tour of the app</small></div><button class="btn ghost sm" id="tour-replay"><i data-icon="play"></i>Show</button></div>
           <div class="card setting"><div><b>Encrypted RPFs</b><small id="keys-state">Checking…</small></div><button class="btn primary sm" id="keys-btn">Unlock</button></div>

@@ -83,3 +83,14 @@ test('a key in a format the app does not know is found by asking each provider',
   const g = await findGateway('AQ.newformat', fake);
   assert.strictEqual(g.name, 'Google Gemini');
 });
+
+test('usage: what is left is read from the provider\'s answer headers', async () => {
+  const { limitsFrom, getLastUsage } = require('../src/core/packai');
+  const h = new Headers({ 'x-ratelimit-limit-requests': '30', 'x-ratelimit-remaining-requests': '27', 'x-ratelimit-reset-requests': '2s', 'x-ratelimit-limit-tokens': '6000', 'x-ratelimit-remaining-tokens': '5100' });
+  assert.deepStrictEqual(limitsFrom(h), { requests: { limit: 30, remaining: 27, reset: '2s' }, tokens: { limit: 6000, remaining: 5100, reset: null } });
+  assert.deepStrictEqual(limitsFrom(new Headers()), { requests: null, tokens: null }, 'providers that say nothing');
+  const fake = async () => ({ ok: true, status: 200, headers: h, json: async () => ({ usage: { total_tokens: 900 }, choices: [{ message: { content: JSON.stringify({ reply: 'ok', patch: {} }) } }] }) });
+  await askPackAi({ url: 'https://api.groq.com/openai/v1', key: 'gsk_x', model: 'm' }, { text: 'x' }, fake);
+  const u = getLastUsage();
+  assert.strictEqual(u.tokensUsed, 900); assert.strictEqual(u.requests.remaining, 27);
+});

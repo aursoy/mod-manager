@@ -41,7 +41,10 @@ test('mod maker: the AI\'s plan becomes real files built from the game\'s own, m
   const tree = rpf.readRpf(modRpf(m.files), 'mod.rpf');
   const paths = [];
   rpf.walk(tree, (e, p) => { if (e.type === 'bin') paths.push(p); });
-  assert.deepStrictEqual(paths.sort(), Object.keys(m.files).sort());
+  assert.deepStrictEqual(paths.sort(), [...Object.keys(m.files), 'assembly.xml'].sort());
+  let asm = null;
+  rpf.walk(tree, (e) => { if (e.name === 'assembly.xml') asm = rpf.getBinaryData(e).toString('utf8'); });
+  assert.ok(asm.includes('<archive path="update\\update.rpf"') && asm.includes('<add source="common\\data\\visualsettings.dat">common\\data\\visualsettings.dat</add>'), 'assembly.xml maps each file into update.rpf');
   let vs = null;
   rpf.walk(tree, (e) => { if (e.name === 'visualsettings.dat') vs = rpf.getBinaryData(e).toString('utf8'); });
   assert.strictEqual(vs, m.files['common/data/visualsettings.dat']);

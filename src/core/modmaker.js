@@ -162,10 +162,33 @@ function buildMod(plan, read) {
   return { name: String(plan.name || 'AI mod').replace(/[^\w .()-]/g, '').trim().slice(0, 40) || 'AI mod', files, done, skipped };
 }
 
-/** The mod's files as an .rpf, laid out at their game paths (common/data/...). */
-function modRpf(files) {
+/** assembly.xml: tells FiveM's mods loader (and OpenIV) which game file each file replaces.
+ *  Every file here lives in update.rpf at the same path. */
+function assemblyXml(files, meta = {}) {
+  const x = (t) => String(t ?? '').replace(/[<>&"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]));
+  const id = '{' + require('crypto').randomUUID().toUpperCase() + '}';
+  const adds = Object.keys(files).map((rel) => `      <add source="${x(rel.replace(/\//g, '\\'))}">${x(rel.replace(/\//g, '\\'))}</add>`).join('\n');
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<package version="2.2" id="${id}" target="Five">
+  <metadata>
+    <name>${x(meta.name || 'Mod')}</name>
+    <version><major>1</major><minor>0</minor></version>
+    <author><displayName>Kt Mod Manager</displayName></author>
+    <description><![CDATA[${String(meta.description || '').replace(/]]>/g, '')}]]></description>
+  </metadata>
+  <content>
+    <archive path="update\\update.rpf" createIfNotExist="False" type="RPF7">
+${adds}
+    </archive>
+  </content>
+</package>
+`;
+}
+
+/** The mod as one .rpf for FiveM.app/mods: the files at their game paths plus assembly.xml. */
+function modRpf(files, meta = {}) {
   const root = { type: 'dir', name: '', children: [] };
-  for (const [rel, text] of Object.entries(files)) {
+  const put = (rel, data) => {
     const parts = rel.split('/');
     let dir = root;
     for (const p of parts.slice(0, -1)) {
@@ -173,10 +196,11 @@ function modRpf(files) {
       if (!next) { next = { type: 'dir', name: p, children: [] }; dir.children.push(next); }
       dir = next;
     }
-    const data = Buffer.from(text, 'utf8');
     dir.children.push({ type: 'bin', name: parts[parts.length - 1], stored: data, compressed: false, size: data.length });
-  }
+  };
+  for (const [rel, text] of Object.entries(files)) put(rel, Buffer.from(text, 'utf8'));
+  put('assembly.xml', Buffer.from(assemblyXml(files, meta), 'utf8'));
   return rpf.writeRpf(root);
 }
 
-module.exports = { MOD_SCHEMA, MOD_SYSTEM, modContext, userMessage, buildMod, modRpf, WEATHER_FIELDS, WEATHERS };
+module.exports = { MOD_SCHEMA, MOD_SYSTEM, modContext, userMessage, buildMod, modRpf, assemblyXml, WEATHER_FIELDS, WEATHERS };

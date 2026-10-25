@@ -14,7 +14,7 @@ const { findGtaDirs, DEFAULT_REL: SKY_REL } = require('./src/core/skytex');
 const { openSkySource, skySources } = require('./src/core/skysource');
 const { listSources, openSource, openFiles } = require('./src/core/texsource');
 const { WorldFiles } = require('./src/core/worldfiles');
-const { askPackAi, askJson, findGateway, listModels, provider: aiProvider } = require('./src/core/packai');
+const { getLastUsage, credits, askPackAi, askJson, findGateway, listModels, provider: aiProvider } = require('./src/core/packai');
 const { EditorPack, modsPacks } = require('./src/core/editorpack');
 const { MOD_SCHEMA, MOD_SYSTEM, modContext, userMessage, buildMod, modRpf } = require('./src/core/modmaker');
 const { readFileFrom, findInFile } = require('./src/core/rpfscan');
@@ -354,7 +354,7 @@ app.whenReady().then(() => {
   handle('mod:ask', async (text, current) => {
     const read = (rel) => world.current(rel);
     if (!modCtx || !modCtx.visualsettings.length) modCtx = await worldCall(() => modContext(read));
-    const plan = await askJson(aiCfg(), { system: MOD_SYSTEM, schema: MOD_SCHEMA, user: userMessage(text, modCtx, current) });
+    const plan = await aiRun(() => askJson(aiCfg(), { system: MOD_SYSTEM, schema: MOD_SCHEMA, user: userMessage(text, modCtx, current) }));
     if (!plan || typeof plan.reply !== 'string') throw new Error('The AI answer was missing parts.');
     madeMod = await worldCall(() => buildMod(plan, read));
     return { reply: plan.reply, plan, mod: { name: madeMod.name, done: madeMod.done, skipped: madeMod.skipped, files: Object.keys(madeMod.files) } };
@@ -371,9 +371,21 @@ app.whenReady().then(() => {
     if (!madeMod || !Object.keys(madeMod.files).length) throw new Error('Make a mod first.');
     const r = await dialog.showSaveDialog(win, { title: 'Save mod as .rpf', defaultPath: madeMod.name.replace(/\s+/g, '_') + '.rpf', filters: [{ name: 'RPF', extensions: ['rpf'] }] });
     if (r.canceled) return null;
-    const bytes = modRpf(madeMod.files);
+    const bytes = modRpf(madeMod.files, { name: madeMod.name, description: madeMod.done.join('\n') });
     fs.writeFileSync(r.filePath, bytes);
     return { path: r.filePath, bytes: bytes.length };
+  });
+  // the same .rpf straight into your own FiveM.app/mods, to try it the way your mates will
+  handle('mod:toMods', () => {
+    if (!madeMod || !Object.keys(madeMod.files).length) throw new Error('Make a mod first.');
+    const dir = path.join(appPath(), 'mods');
+    fs.mkdirSync(dir, { recursive: true });
+    const out = path.join(dir, 'kt_' + madeMod.name.replace(/[^\w-]+/g, '_').toLowerCase() + '.rpf');
+    if (fs.existsSync(out)) fs.copyFileSync(out, out + '.bak');
+    fs.writeFileSync(out, modRpf(madeMod.files, { name: madeMod.name, description: madeMod.done.join('\n') }));
+    mgr.log('success', 'Put AI mod "' + madeMod.name + '" in FiveM.app/mods');
+    mgr.save();
+    return { path: out };
   });
   handle('world:stars', () => worldCall(() => world.stars()));
   handle('world:setStars', (mode) => worldCall(() => world.setStars(mode)));
@@ -463,7 +475,7 @@ app.whenReady().then(() => {
   handle('gfx:readImage', (f) => readImage(f));
 
   handle('backups:list', () => mgr.listBackups());
-  handle('backups:restoreAll', () => mgr.restoreAll());
+  handle('backups:restoreAll', () => { const r = mgr.restoreAll(); try { world.syncMods(); } catch (e) { mgr.log('warn', 'Could not put back packs in mods: ' + e.message); } return r; });
 
   // ----- mods folder -----
   const modsPath = () => path.join(appPath(), 'mods');
@@ -538,7 +550,24 @@ app.whenReady().then(() => {
       return listModels(aiCfg());
     }
   });
-  handle('ai:ask', (input) => askPackAi(aiCfg(), input));
+  // usage: requests and tokens today (counted here), plus what the provider says is left
+  const countAi = () => {
+    const day = new Date().toISOString().slice(0, 10);
+    const u = mgr.state.aiCount && mgr.state.aiCount.day === day ? mgr.state.aiCount : { day, requests: 0, tokens: 0 };
+    const last = getLastUsage();
+    u.requests++; u.tokens += last ? last.tokensUsed || 0 : 0;
+    mgr.state.aiCount = u;
+    mgr.save();
+  };
+  const aiRun = async (fn) => { try { return await fn(); } finally { countAi(); } };
+  handle('ai:ask', (input) => aiRun(() => askPackAi(aiCfg(), input)));
+  handle('ai:usage', async () => {
+    const c = aiCfg();
+    const day = new Date().toISOString().slice(0, 10);
+    const today = mgr.state.aiCount && mgr.state.aiCount.day === day ? mgr.state.aiCount : { day, requests: 0, tokens: 0 };
+    const p = (c.key || c.url) ? aiProvider(c) : null;
+    return { provider: p ? p.name : null, today, last: getLastUsage(), credits: await credits(c) };
+  });
   handle('ai:test', async () => (await askPackAi(aiCfg(), { text: 'pvp pack, no fog', spec: null })).reply);
 
   // ----- profile / discord -----

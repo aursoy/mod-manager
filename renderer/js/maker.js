@@ -3,6 +3,7 @@
 // them or saves them as an .rpf.
 import { notify } from './notify.js';
 import { busy } from './fx.js';
+import { paintUsage } from './aiusage.js';
 
 const api = window.api;
 const $ = (s, r = document) => r.querySelector(s);
@@ -31,6 +32,7 @@ function paintResult() {
   const has = !!(m && m.files.length);
   $('#mk-install').disabled = !has;
   $('#mk-rpf').disabled = !has;
+  $('#mk-tomods').disabled = !has;
 }
 
 async function send(text) {
@@ -60,6 +62,7 @@ async function send(text) {
   }
   busy($('#mk-send'), false);
   mk.busy = false;
+  paintUsage($('#mk-usage'));
 }
 
 export async function refreshMaker() {
@@ -68,6 +71,7 @@ export async function refreshMaker() {
   $('#mk-off').classList.toggle('hidden', on);
   $('#mk-input').disabled = !on;
   $('#mk-send').disabled = !on;
+  paintUsage($('#mk-usage'));
   if (!$('#mk-log').children.length) say('ai', 'Tell me what mod you want: more FPS, no lightning, a clear view, longer draw distance… I build it from your own game files.');
 }
 
@@ -80,6 +84,15 @@ export function initMaker(c) {
   $('#mk-new').onclick = () => { mk.plan = null; mk.mod = null; $('#mk-log').innerHTML = ''; paintResult(); refreshMaker(); };
   $('#mk-install').onclick = (e) => install(e.currentTarget);
   $('#mk-rpf').onclick = (e) => saveRpf(e.currentTarget);
+  $('#mk-tomods').onclick = async (e) => {
+    const btn = e.currentTarget;
+    busy(btn, true);
+    try {
+      const r = await api.call('mod:toMods');
+      notify.success('In your mods folder', r.path.split(/[\\/]/).pop() + ' is in FiveM.app/mods, exactly how your mates will use it. Restart FiveM to try it.', { action: { label: 'Show in folder', fn: () => api.call('shell:reveal', r.path) } });
+    } catch (err) { notify.error('Could not put it there', err.message); }
+    busy(btn, false);
+  };
   paintResult();
 }
 
@@ -96,7 +109,7 @@ async function saveRpf(btn) {
   busy(btn, true);
   try {
     const r = await api.call('mod:saveRpf');
-    if (r) notify.success('Saved', r.path.split(/[\\/]/).pop() + ' · ' + Math.max(1, Math.round(r.bytes / 1024)) + ' KB', { action: { label: 'Show in folder', fn: () => api.call('shell:reveal', r.path) } });
+    if (r) notify.success('Saved ' + r.path.split(/[\\/]/).pop(), 'Send it to your mates: they drop it in FiveM.app/mods and restart FiveM.', { action: { label: 'Show in folder', fn: () => api.call('shell:reveal', r.path) } });
   } catch (err) { notify.error('Could not save', err.message); }
   busy(btn, false);
 }

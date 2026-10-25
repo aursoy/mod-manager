@@ -8,6 +8,7 @@ import { startTour, tourSeen } from './tour.js';
 import { initDropdowns } from './dropdown.js';
 import { refreshWorld, initWorldPage } from './world.js';
 import { initMaker, refreshMaker } from './maker.js';
+import { paintUsage } from './aiusage.js';
 
 import { initPages, refreshMods, refreshCache, refreshProfile, addModFiles } from './pages.js';
 
@@ -320,6 +321,7 @@ async function refreshAiLink() {
   $('#ai-state').textContent = c.on ? 'On for Graphics AI and Mod Maker' + (c.provider ? ' · ' + c.provider : '') + (c.model ? ' · ' + c.model : '') : 'Powers Graphics AI and Mod Maker. Paste an API key from any AI, or an AI router like OmniRoute.';
   $('#ai-tag').textContent = c.on ? 'On' : 'Off';
   $('#ai-tag').classList.toggle('solid', c.on);
+  paintUsage($('#ai-usage'));
 }
 
 async function fillAiModels() {

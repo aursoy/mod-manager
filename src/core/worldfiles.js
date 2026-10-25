@@ -13,6 +13,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { syncMods } = require('./modsync');
 const { findThunder, muteThunder, citizenRel } = require('./thunder');
 const { parseVS, setValues, packMountainKeys, FAR_CLIP } = require('./visualsettings');
 
@@ -27,7 +28,7 @@ const GAME_PATHS = {
   [WEATHER]: [['update/update.rpf', 'common/data/levels/gta5/weather.xml'], ['common.rpf', 'data/levels/gta5/weather.xml']],
   [CLOUDS]: [['update/update.rpf', 'common/data/clouds.xml'], ['common.rpf', 'data/clouds.xml']],
 };
-const REMOVED_FAR_CLIP = 0.5;
+const REMOVED_FAR_CLIP = 0.3;
 const HEIGHT_EVERYWHERE = { 'misc.Multiplier.heightStart': -1000, 'misc.Multiplier.heightEnd': -999 };
 const VS_OWNER = 'visualsettings';
 const VS_LAYERS = ['mountains', 'pedlod', 'editor']; // later ones win on the same line
@@ -113,6 +114,8 @@ class WorldFiles {
 
   get vsLayers() { this.w.vs = this.w.vs || {}; return this.w.vs; }
 
+  vsAll() { const L = this.vsLayers; return Object.assign({}, ...VS_LAYERS.map((k) => L[k] || {})); }
+
   /** visualsettings.dat as it was before any of our options touched it. */
   vsBase() { return this.before(VS_OWNER, VS); }
 
@@ -120,20 +123,12 @@ class WorldFiles {
   writeVS(layer, changes) {
     const L = this.vsLayers;
     if (changes && Object.keys(changes).length) L[layer] = changes; else delete L[layer];
-    if (!Object.keys(L).length) { this.unpatch(VS_OWNER, VS); return; }
+    if (!Object.keys(L).length) { this.unpatch(VS_OWNER, VS); this.syncMods(); return; }
     const base = this.vsBase();
     if (base == null) throw new Error('No visualsettings.dat found in your game or packs.');
-    const all = Object.assign({}, ...VS_LAYERS.map((k) => L[k] || {}));
-    let text = setValues(base, all);
-    // a pack's file can leave lines out; add the ones we need at the end
-    const have = new Set(parseVS(base).map((e) => e.key));
-    const missing = Object.keys(all).filter((k) => !have.has(k));
-    if (missing.length) {
-      const crlf = (base.match(/\r\n/g) || []).length;
-      const eol = crlf * 2 > (base.match(/\n/g) || []).length ? '\r\n' : '\n';
-      text = text.replace(/\s*$/, '') + eol + eol + '# Kt Mod Manager' + eol + missing.map((k) => k + '\t' + all[k]).join(eol) + eol;
-    }
+    let text = applyVS(base, this.vsAll());
     this.patch(VS_OWNER, VS, text);
+    this.syncMods();
   }
 
   // ---------- black mountains ----------
@@ -145,9 +140,12 @@ class WorldFiles {
     const far = entries.find((e) => e.key === FAR_CLIP);
     const packKeys = packMountainKeys(entries);
     const now = parseVS(this.current(VS) || '');
+    const layer = this.vsLayers.mountains;
+    const nowFar = (now.find((e) => e.key === FAR_CLIP) || far || {}).value;
     return {
       available: !!far || packKeys.length > 0,
-      removed: !!this.vsLayers.mountains,
+      // only "removed" when the draw distance is really shorter (a longer one is still visible)
+      removed: !!layer && (!far || nowFar < far.value || Object.keys(layer).some((k) => k !== FAR_CLIP && !(k in HEIGHT_EVERYWHERE))),
       original: far ? far.value : null,
       value: (now.find((e) => e.key === FAR_CLIP) || far || {}).value ?? null,
       packKeys: packKeys.map((k) => ({ key: k, value: (now.find((e) => e.key === k) || {}).value, section: (entries.find((e) => e.key === k) || {}).section })),
@@ -201,11 +199,12 @@ class WorldFiles {
   }
 
   setStillClouds(on) {
-    if (!on) { this.unpatch('clouds', CLOUDS); return this.stillClouds(); }
+    if (!on) { this.unpatch('clouds', CLOUDS); this.syncMods(); return this.stillClouds(); }
     const base = this.before('clouds', CLOUDS);
     if (base == null) throw new Error('No clouds.xml found in your game or packs.');
     if (!/<mAngularVelocity\b/.test(base)) throw new Error('This clouds.xml has no cloud movement settings.');
     this.patch('clouds', CLOUDS, stillCloudsText(base));
+    this.syncMods();
     return this.stillClouds();
   }
 
@@ -242,13 +241,42 @@ class WorldFiles {
   writeWeather() {
     const L = this.weatherLayers;
     if (this.w.patches['snow|' + WEATHER]) this.unpatch('snow', WEATHER);
-    if (!L.snow && !L.noLightning) { this.unpatch('weather', WEATHER); return; }
+    if (!L.snow && !L.noLightning) { this.unpatch('weather', WEATHER); this.syncMods(); return; }
     const base = this.before('weather', WEATHER);
     if (base == null) throw new Error('No weather.xml found in your game or packs.');
+    this.patch('weather', WEATHER, this.weatherText(base));
+    this.syncMods();
+  }
+
+  weatherText(base) {
+    const L = this.weatherLayers;
     let text = base;
     if (L.snow) text = snowify(text, L.snow, this.fromGame(WEATHER));
     if (L.noLightning) text = text.replace(/(<Lightning\s+value=")[^"]*(")/g, '$10.000000$2');
-    this.patch('weather', WEATHER, text);
+    return text;
+  }
+
+  // ---------- packs in FiveM.app/mods: the same options in their own copies ----------
+
+  modTransforms() {
+    const t = [];
+    const vs = this.vsAll();
+    if (Object.keys(vs).length) t.push({ test: (n) => /^visualsettings\.dat$/i.test(n), apply: (x) => applyVS(x, vs) });
+    const L = this.weatherLayers;
+    if (L.snow || L.noLightning) t.push({ test: (n) => /^weather\.xml$/i.test(n), apply: (x) => this.weatherText(x) });
+    if (this.w.patches['clouds|' + CLOUDS]) t.push({ test: (n) => /^clouds\.xml$/i.test(n), apply: (x) => (/<mAngularVelocity\b/.test(x) ? stillCloudsText(x) : x) });
+    const stars = this.w.stars;
+    if (stars === 'on' || stars === 'off') t.push({ test: (n) => /\.xml$/i.test(n) && /^(w_|timecycle)/i.test(n), apply: (x) => starsText(x, stars) });
+    return t;
+  }
+
+  /** Write the options into mods-folder packs (and put them back when off). Names of packs changed. */
+  syncMods() {
+    const c = this.mgr.state.citizenPath;
+    if (!c) return [];
+    this.w.inMods = syncMods(path.join(path.dirname(c), 'mods'), this.dir, this.modTransforms());
+    this.mgr.save();
+    return this.w.inMods;
   }
 
   snow() {
@@ -341,6 +369,7 @@ class WorldFiles {
       if (!rels.length && mode === 'off') throw new Error('No timecycle files with stars found.');
       this.w.stars = mode; this.w.starsRels = rels;
     }
+    this.syncMods();
     this.mgr.save();
     return this.stars();
   }
@@ -385,6 +414,19 @@ class WorldFiles {
 }
 
 /** clouds.xml with every cloud hat's spin, scroll, altitude scroll and animation off. */
+/** visualsettings.dat with these values; lines a pack's file left out are added at the end. */
+function applyVS(base, all) {
+  let text = setValues(base, all);
+  const have = new Set(parseVS(base).map((e) => e.key));
+  const missing = Object.keys(all).filter((k) => !have.has(k));
+  if (missing.length) {
+    const crlf = (base.match(/\r\n/g) || []).length;
+    const eol = crlf * 2 > (base.match(/\n/g) || []).length ? '\r\n' : '\n';
+    text = text.replace(/\s*$/, '') + eol + eol + '# Kt Mod Manager' + eol + missing.map((k) => k + '\t' + all[k]).join(eol) + eol;
+  }
+  return text;
+}
+
 function stillCloudsText(base) {
   const zero = (n) => n.replace(/-?\d+(\.\d+)?(e[-+]?\d+)?/gi, (m) => (m.includes('.') ? '0.000000' : '0'));
   return base

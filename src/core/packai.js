@@ -120,6 +120,27 @@ function parseJson(text) {
   return JSON.parse(t.slice(start, end + 1));
 }
 
+// ---------- usage: what the provider says is left, from the last answer's headers ----------
+let lastUsage = null; // { at, provider, tokens, requests: { limit, remaining, reset }, tokens: {...} }
+const numH = (h, name) => { const v = h && h.get(name); return v != null && v !== '' && Number.isFinite(Number(v)) ? Number(v) : null; };
+function limitsFrom(h) {
+  const req = {
+    limit: numH(h, 'x-ratelimit-limit-requests') ?? numH(h, 'anthropic-ratelimit-requests-limit'),
+    remaining: numH(h, 'x-ratelimit-remaining-requests') ?? numH(h, 'anthropic-ratelimit-requests-remaining'),
+    reset: (h && (h.get('x-ratelimit-reset-requests') || h.get('anthropic-ratelimit-requests-reset'))) || null,
+  };
+  const tok = {
+    limit: numH(h, 'x-ratelimit-limit-tokens') ?? numH(h, 'anthropic-ratelimit-tokens-limit'),
+    remaining: numH(h, 'x-ratelimit-remaining-tokens') ?? numH(h, 'anthropic-ratelimit-tokens-remaining'),
+    reset: (h && (h.get('x-ratelimit-reset-tokens') || h.get('anthropic-ratelimit-tokens-reset'))) || null,
+  };
+  return { requests: req.limit != null || req.remaining != null ? req : null, tokens: tok.limit != null || tok.remaining != null ? tok : null };
+}
+function noteUsage(headers, tokens) {
+  lastUsage = { at: Date.now(), tokensUsed: tokens || 0, ...limitsFrom(headers) };
+}
+function getLastUsage() { return lastUsage; }
+
 function anthropicClient(cfg) {
   const Anthropic = require('@anthropic-ai/sdk').default;
   const base = /^https?:\/\//.test(cfg.url || '') ? cfg.url.replace(/\/v1\/messages\/?$/, '').replace(/\/v1\/?$/, '').replace(/\/$/, '') : undefined;
@@ -129,7 +150,7 @@ function anthropicClient(cfg) {
 async function askAnthropic(cfg, input, job = { system: SYSTEM, schema: SCHEMA }) {
   const client = anthropicClient(cfg);
   // server-side fallback: if the model declines, the API retries on a fallback model in the same call
-  const res = await client.beta.messages.create({
+  const { data: res, response } = await client.beta.messages.create({
     model: cfg.model,
     max_tokens: 16000,
     betas: ['server-side-fallback-2026-07-01'],
@@ -137,7 +158,8 @@ async function askAnthropic(cfg, input, job = { system: SYSTEM, schema: SCHEMA }
     system: job.system,
     output_config: { effort: 'low', format: { type: 'json_schema', schema: job.schema } },
     messages: [{ role: 'user', content: job.user || userText(input) }],
-  });
+  }).withResponse();
+  noteUsage(response.headers, res.usage ? (res.usage.input_tokens || 0) + (res.usage.output_tokens || 0) : 0);
   if (res.stop_reason === 'refusal') throw new Error('The AI declined that request.');
   const text = res.content.filter((b) => b.type === 'text').map((b) => b.text).join('');
   return parseJson(text);
@@ -169,8 +191,10 @@ async function askOpenAiStyle(cfg, input, fetchImpl = fetch, job = { system: SYS
   });
   let r = await post(body);
   if (r.status === 400) { delete body.response_format; r = await post(body); } // some servers do not know response_format
+  if (r.status === 429) { noteUsage(r.headers, 0); throw new Error('You have hit your AI limit for now. ' + (r.headers.get('retry-after') ? 'Try again in ' + r.headers.get('retry-after') + ' seconds.' : 'Wait a bit and try again.')); }
   if (!r.ok) throw new Error('The AI answered ' + r.status + ': ' + (await r.text()).slice(0, 200));
   const j = await r.json();
+  noteUsage(r.headers, j.usage ? j.usage.total_tokens || 0 : 0);
   const msg = j.choices && j.choices[0] && j.choices[0].message;
   return parseJson(msg && msg.content);
 }
@@ -236,6 +260,18 @@ async function findGateway(key, fetchImpl = fetch) {
   return i < 0 ? null : places[i];
 }
 
+/** Credits on an OpenRouter key: { used, limit, remaining } (dollars), or null elsewhere. */
+async function credits(cfg, fetchImpl = fetch) {
+  const p = provider(cfg);
+  if (!p || p.name !== 'OpenRouter' || !cfg.key) return null;
+  try {
+    const r = await fetchImpl('https://openrouter.ai/api/v1/key', { headers: authHeaders(cfg), signal: AbortSignal.timeout(8000) });
+    if (!r.ok) return null;
+    const d = (await r.json()).data || {};
+    return { used: d.usage ?? null, limit: d.limit ?? null, remaining: d.limit_remaining ?? (d.limit != null && d.usage != null ? d.limit - d.usage : null), free: !!d.is_free_tier };
+  } catch (e) { return null; }
+}
+
 /** Any other job: { system, schema, user } -> the parsed JSON answer. */
 async function askJson(cfg, job, fetchImpl) {
   if (!cfg || (!cfg.key && !cfg.url)) throw new Error('No AI set up.');
@@ -246,4 +282,4 @@ async function askJson(cfg, job, fetchImpl) {
   return p.anthropic ? askAnthropic(full, null, job) : askOpenAiStyle(full, null, fetchImpl, job);
 }
 
-module.exports = { findGateway, LOCAL_GATEWAYS, askJson, askPackAi, listModels, provider, chatUrl, isAnthropic, parseJson, SCHEMA, SYSTEM };
+module.exports = { getLastUsage, credits, limitsFrom, findGateway, LOCAL_GATEWAYS, askJson, askPackAi, listModels, provider, chatUrl, isAnthropic, parseJson, SCHEMA, SYSTEM };

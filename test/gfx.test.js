@@ -673,9 +673,9 @@ test('black mountains: lowers the draw distance on top of a pack\'s visualsettin
   assert.deepStrictEqual(st.packKeys.map((k) => k.key), ['lod.fadedist.slod3'], 'the pack\'s own "black mountains" lines are found');
   st = wf.setMountains({ removed: true });
   assert.strictEqual(st.removed, true);
-  assert.strictEqual(st.value, 0.5);
+  assert.strictEqual(st.value, 0.3);
   const now = fs.readFileSync(path.join(cit, VS), 'utf8');
-  assert.ok(now.startsWith(VS_TEXT.replace('heightStart\t100', 'heightStart\t-1000').replace('farClipMultiplier\t1', 'farClipMultiplier\t0.5').replace(/\n$/, '')), 'far clip halved and used at every height');
+  assert.ok(now.startsWith(VS_TEXT.replace('heightStart\t100', 'heightStart\t-1000').replace('farClipMultiplier\t1', 'farClipMultiplier\t0.3').replace(/\n$/, '')), 'far clip halved and used at every height');
   assert.ok(/misc\.Multiplier\.heightEnd\t-999/.test(now), 'the missing heightEnd line is added');
   wf.setMountains({ removed: true, keys: { 'lod.fadedist.slod3': 0 } });
   assert.ok(fs.readFileSync(path.join(cit, VS), 'utf8').includes('slod3\t\t0\r\n'));
@@ -726,7 +726,7 @@ test('player detail fix: raises the ped LOD distances, works together with black
   assert.strictEqual(st.on, true);
   assert.strictEqual(st.now, PED_LOD['ped.lod.distance.high']);
   let text = fs.readFileSync(path.join(cit, VS), 'utf8');
-  assert.ok(text.includes('ped.lod.distance.low\t400\n') && text.includes('farClipMultiplier\t0.5'), 'both options are in the file');
+  assert.ok(text.includes('ped.lod.distance.low\t400\n') && text.includes('farClipMultiplier\t0.3'), 'both options are in the file');
   assert.ok(/# Kt Mod Manager\n[^#]*pedincar\.lod\.distance\.high\.x64\t80/.test(text), 'a line the file did not have is added');
   wf.setMountains({ removed: false });
   text = fs.readFileSync(path.join(cit, VS), 'utf8');
@@ -984,4 +984,47 @@ test('stars: off on every timecycle (a pack\'s too), on gives stars at night, pa
   wf.setStars('pack');
   assert.strictEqual(fs.readFileSync(path.join(cit, 'common/data/timecycle/w_clear.xml'), 'utf8'), packTc);
   assert.ok(!fs.existsSync(path.join(cit, 'common/data/timecycle/w_rain.xml')));
+});
+
+test('a graphics pack in FiveM.app/mods gets snow, stars and black mountains in its own files, and is put back exactly', () => {
+  const { m, cit } = makeCitizen();
+  const mods = path.join(path.dirname(cit), 'mods');
+  fs.mkdirSync(mods, { recursive: true });
+  const PACK_WX = '<CWeatherTypes><WeatherTypes><Item><Name>EXTRASUNNY</Name><Snow value="0.000000"/><DropSettingName /></Item></WeatherTypes></CWeatherTypes>';
+  const PACK_TC = '<timecycle_keyframe_data><cycle name="CLEAR"><region name="GLOBAL"><sky_stars_iten>3 3 3 3 3 3 3 3 3</sky_stars_iten></region></cycle></timecycle_keyframe_data>';
+  const inner = rpf.writeRpf({ type: 'dir', name: '', children: [{ type: 'dir', name: 'common', children: [{ type: 'dir', name: 'data', children: [
+    binOf('visualsettings.dat', Buffer.from(VS_TEXT)), binOf('clouds.xml', Buffer.from('<x/>')),
+    { type: 'dir', name: 'levels', children: [{ type: 'dir', name: 'gta5', children: [binOf('weather.xml', Buffer.from(PACK_WX))] }] },
+    { type: 'dir', name: 'timecycle', children: [binOf('w_clear.xml', Buffer.from(PACK_TC))] },
+  ] }] }] });
+  const packFile = path.join(mods, 'pvp_pack.rpf');
+  const original = rpf.writeRpf({ type: 'dir', name: '', children: [binOf('update.rpf', inner)] });
+  fs.writeFileSync(packFile, original);
+  fs.writeFileSync(path.join(mods, 'cars.rpf'), rpf.writeRpf({ type: 'dir', name: '', children: [binOf('readme.txt', Buffer.from('x'))] }));
+  const game = (arc, inner2) => (arc === 'update/update.rpf' && inner2.endsWith('weather.xml') ? Buffer.from(WEATHER_XML) : arc === 'update/update.rpf' && inner2.endsWith('visualsettings.dat') ? Buffer.from(VS_TEXT) : null);
+  const wf = new WorldFiles(m, path.join(os.tmpdir(), 'kt-wf9-' + Date.now()), game);
+  const inside = (name) => {
+    let out = null;
+    const scan = (node) => rpf.walk(node, (e) => { if (e.name === 'update.rpf') scan(rpf.readRpf(rpf.getBinaryData(e), e.name)); else if (e.name === name) out = rpf.getBinaryData(e).toString('utf8'); });
+    scan(rpf.readRpf(fs.readFileSync(packFile), 'p'));
+    return out;
+  };
+  wf.setSnow(1);
+  assert.ok(inside('weather.xml').includes('<Snow value="1.000000"/>') && inside('weather.xml').includes('<DropSettingName>SNOW_XMAS</DropSettingName>'), 'snow inside the pack');
+  assert.deepStrictEqual(wf.w.inMods, ['pvp_pack.rpf'], 'other mods left alone');
+  wf.setStars('off');
+  assert.ok(/<sky_stars_iten>(0\.0000 ?)+</.test(inside('w_clear.xml')), 'stars off inside the pack');
+  wf.setMountains({ removed: true });
+  assert.ok(/farClipMultiplier\t0\.\d/.test(inside('visualsettings.dat')));
+  wf.setSnow(0); wf.setStars('pack'); wf.setMountains({ removed: false });
+  assert.ok(fs.readFileSync(packFile).equals(original), 'the pack is exactly as it was');
+});
+
+test('black mountains: a longer draw distance is not "removed", a shorter one is', () => {
+  const { m } = makeCitizen();
+  const wf = new WorldFiles(m, path.join(os.tmpdir(), 'kt-wf10-' + Date.now()), (arc, inner) => (arc === 'update/update.rpf' && inner.endsWith('visualsettings.dat') ? Buffer.from(VS_TEXT) : null));
+  let st = wf.setMountains({ removed: false, distance: 1.6 });
+  assert.strictEqual(st.removed, false); assert.strictEqual(st.value, 1.6);
+  st = wf.setMountains({ removed: true, distance: 0.4 });
+  assert.strictEqual(st.removed, true); assert.strictEqual(st.value, 0.4);
 });
