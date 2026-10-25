@@ -824,3 +824,10 @@ body.custom-bg #bg { display: none; }
 /* lists show soft placeholders until their data arrives */
 .list li.skel { height: 58px; border-color: transparent; background: linear-gradient(90deg, rgba(255,255,255,.03) 25%, rgba(255,255,255,.07) 50%, rgba(255,255,255,.03) 75%) 0 0 / 300% 100%; animation: skel 1.2s linear infinite; }
 @keyframes skel { from { background-position: 100% 0; } to { background-position: -200% 0; } }
+
+/* settings: AI link */
+.setting.ai-link { display: grid; gap: 14px; align-items: stretch; }
+.ai-link-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.ai-link-head small { display: block; }
+.ai-link-fields { display: grid; grid-template-columns: 1.4fr 1fr .8fr; gap: 12px; }
+.ai-link-fields .field { margin: 0; }

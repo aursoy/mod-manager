@@ -2,7 +2,8 @@
 //
 //   prompt (+ image)  ->  spec  ->  buildPack(spec, timecycle files)  ->  edited files + tweak switches
 //
-// The spec comes from the built-in prompt reader; it works offline.
+// The spec comes from the built-in prompt reader (offline), or from an AI over an
+// API link (Settings), whose answer goes through fromModel().
 
 import { parse, serialize, keyHours, daylight, twilight, mix, lum, clamp01, hexToRgb, rgbToHex, gradeColours, setColour } from './timecycle.js';
 
@@ -235,6 +236,38 @@ export function parsePrompt(text) {
   else if (/\b(actual|real|whole|literal(ly)?|full)\s+sky\b|\bsky\s*(box|texture|dome|image|picture)\b|\b(image|picture|photo|pic)\s+(as|for|in)\s+(the\s+|my\s+|a\s+)?sky\b|\bas\s+(the|my|a)\s+sky\b/.test(t)) patch.imageUse = 'texture';
   // the picture shows all the time unless they only want it at night
   patch.imageAllDay = !/\b(only\s+at\s+night|at\s+night\s+only|just\s+at\s+night)\b/.test(t);
+  return patch;
+}
+
+/** A patch from the online AI (src/core/packai.js schema) in the same shape parsePrompt makes.
+ *  Unknown values are dropped, numbers are clamped. */
+export function fromModel(p) {
+  const patch = { world: {}, adjust: {}, imageAllDay: true };
+  if (!p || typeof p !== 'object') return patch;
+  const hex = (x) => (typeof x === 'string' && /^#[0-9a-f]{6}$/i.test(x.trim()) ? x.trim().toLowerCase() : null);
+  const num = (x, lo, hi) => (typeof x === 'number' && Number.isFinite(x) ? Math.max(lo, Math.min(hi, x)) : null);
+  if (typeof p.name === 'string' && p.name.trim()) patch.name = p.name.trim().slice(0, 40);
+  if (p.mood && MOODS[p.mood]) {
+    const m = MOODS[p.mood];
+    patch.mood = p.mood;
+    if (m.sky) patch.sky = { ...skyOf(m.sky), strength: 0.85 };
+    if (m.constant) patch.constant = true;
+    if (p.mood === 'winter') patch.world.snow = 'keep';
+    if (m.pvp) { patch.fps = 2; Object.assign(patch.adjust, { fog: 'none', bloom: 'none', blur: 'none' }); }
+    patch.grade = { ...(m.grade || {}) };
+  }
+  if (hex(p.skyColour)) patch.sky = { ...skyFromColour(hex(p.skyColour)), strength: 0.85 };
+  const g = () => (patch.grade = patch.grade || {});
+  if (hex(p.tint)) { g().tint = hex(p.tint); g().strength = num(p.tintStrength, 0, 1) ?? 0.3; }
+  if (num(p.brightness, -1, 1) != null) g().brightness = num(p.brightness, -1, 1);
+  if (num(p.saturation, 0, 2) != null) g().saturation = num(p.saturation, 0, 2);
+  for (const k of WORLD_KEYS) if (p.world && (p.world[k] === 'keep' || p.world[k] === 'remove')) patch.world[k] = p.world[k];
+  for (const k of Object.keys(ADJUST)) if (p.adjust && ADJUST_OPS.includes(p.adjust[k])) patch.adjust[k] = p.adjust[k];
+  if ([0, 1, 2, 3].includes(p.fps)) patch.fps = p.fps;
+  if (typeof p.constant === 'boolean') patch.constant = p.constant;
+  if (p.timeLock === 'night' || p.timeLock === 'day') patch.timeLock = p.timeLock;
+  if (p.imageUse === 'texture' || p.imageUse === 'colours') patch.imageUse = p.imageUse;
+  if (!Object.keys(patch.adjust).length) delete patch.adjust;
   return patch;
 }
 

@@ -438,8 +438,10 @@ function greet() {
   bubble('ai', `What pack do you want? Add a picture ${icon('image')} for the sky or a pack ${icon('folder')} to build on.`);
 }
 
-function refreshAiEngine() {
-  $('#aip-engine').textContent = 'Works offline · just say what you want';
+async function refreshAiEngine() {
+  const c = await api.call('ai:config').catch(() => null);
+  aip.linked = !!(c && c.on);
+  $('#aip-engine').textContent = aip.linked ? 'AI link · ' + (c.model || c.url.replace(/^https?:\/\//, '').split('/')[0]) : 'Offline';
 }
 
 function loadImageEl(url) {
@@ -627,7 +629,16 @@ async function generate() {
   bubble('user', (aip.image ? `<span class="att">${icon('image')}${esc(aip.image.name)}</span>` : '') + esc(text || 'Make this picture my sky.'));
   input.value = '';
   try {
-    const patch = AI.parsePrompt(text);
+    // through the AI link when one is set, else the built-in reader
+    let patch = null;
+    if (aip.linked) {
+      try {
+        const r = await api.call('ai:ask', { text, spec: aip.spec, hasImage: !!aip.image, hasPack: !!aip.pack });
+        patch = AI.fromModel(r.patch);
+        if (r.reply) bubble('ai', esc(r.reply));
+      } catch (e) { bubble('ai', 'AI link failed (' + esc(e.message) + '), so I read it myself.'); }
+    }
+    if (!patch) patch = AI.parsePrompt(text);
     if (aip.image) {
       patch.sky = { ...pick(aip.image.palette), strength: 0.85 };
       patch.skyImage = patch.imageUse === 'colours' ? null : { allDay: !!patch.imageAllDay };

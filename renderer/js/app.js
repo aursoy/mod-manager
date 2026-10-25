@@ -302,8 +302,37 @@ function applyPrefs() {
   document.body.classList.toggle('reduce-motion', prefs.reduceMotion);
   $$('[data-setting]').forEach((s) => s.classList.toggle('on', !!prefs[s.dataset.setting]));
 }
+async function refreshAiLink() {
+  const c = await api.call('ai:config').catch(() => null);
+  if (!c) return;
+  $('#ai-url').value = c.url; $('#ai-model').value = c.model;
+  $('#ai-key').placeholder = c.hasKey ? 'Saved (paste to replace)' : 'Paste key';
+  $('#ai-state').textContent = c.on ? 'Pack AI answers through ' + (c.url.replace(/^https?:\/\//, '').split('/')[0]) : 'Off — the Pack AI works offline';
+  $('#ai-tag').textContent = c.on ? 'Linked' : 'Offline';
+  $('#ai-tag').classList.toggle('solid', c.on);
+}
+
 function initSettings() {
   $('#tour-replay').onclick = () => startTour({ go });
+  refreshAiLink();
+  $('#ai-save').onclick = async (e) => {
+    const btn = e.currentTarget;
+    busy(btn, true);
+    try {
+      const key = $('#ai-key').value.trim();
+      await api.call('ai:setConfig', { url: $('#ai-url').value, model: $('#ai-model').value, ...(key ? { key } : {}) });
+      $('#ai-key').value = '';
+      await refreshAiLink();
+      const reply = await api.call('ai:test');
+      notify.success('AI linked', reply);
+    } catch (err) { notify.error('AI link not working', err.message); }
+    busy(btn, false);
+  };
+  $('#ai-off').onclick = async () => {
+    await api.call('ai:setConfig', { url: '', key: '' }).catch(() => {});
+    refreshAiLink();
+    notify.info('AI link off', 'The Pack AI works offline again.');
+  };
   $$('[data-setting]').forEach((s) => (s.onclick = () => {
     prefs[s.dataset.setting] = !prefs[s.dataset.setting];
     try { localStorage.setItem('kt.prefs', JSON.stringify(prefs)); } catch (e) { /* ignore */ }
