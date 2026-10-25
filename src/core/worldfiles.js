@@ -13,6 +13,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { findThunder, muteThunder, citizenRel } = require('./thunder');
 const { parseVS, setValues, packMountainKeys, FAR_CLIP } = require('./visualsettings');
 
 const VS = 'common/data/visualsettings.dat';
@@ -42,8 +43,9 @@ const PED_LOD = {
 
 class WorldFiles {
   /** readGame(rpfRelToGtaDir, innerPath) -> Buffer | null */
-  constructor(mgr, dir, readGame = () => null) {
+  constructor(mgr, dir, readGame = () => null, { gtaDir = () => null } = {}) {
     this.mgr = mgr;
+    this.gtaDir = gtaDir;
     this.dir = dir;
     this.readGame = readGame;
   }
@@ -226,37 +228,123 @@ class WorldFiles {
 
   resetVisualSettings() { this.writeVS('editor', null); return this.visualSettings(); }
 
-  // ---------- snow ----------
+  // ---------- weather.xml: snow and lightning (one file, each option its own layer) ----------
+
+  get weatherLayers() {
+    this.w.weather = this.w.weather || {};
+    const L = this.w.weather;
+    // older versions let snow own the file on its own
+    const legacy = this.w.patches['snow|' + WEATHER];
+    if (legacy && L.snow == null) {
+      const vals = [...(this.current(WEATHER) || '').matchAll(/<Snow\s+value="([^"]*)"/g)].map((m) => Number(m[1]) || 0);
+      L.snow = vals.length ? Math.max(...vals) : 1;
+    }
+    return L;
+  }
+
+  writeWeather() {
+    const L = this.weatherLayers;
+    if (this.w.patches['snow|' + WEATHER]) this.unpatch('snow', WEATHER);
+    if (!L.snow && !L.noLightning) { this.unpatch('weather', WEATHER); return; }
+    const base = this.before('weather', WEATHER);
+    if (base == null) throw new Error('No weather.xml found in your game or packs.');
+    let text = base;
+    if (L.snow) text = snowify(text, L.snow);
+    if (L.noLightning) text = text.replace(/(<Lightning\s+value=")[^"]*(")/g, '$10.000000$2');
+    this.patch('weather', WEATHER, text);
+  }
 
   snow() {
     const text = this.current(WEATHER);
     if (text == null) return { available: false };
     const vals = [...text.matchAll(/<Snow\s+value="([^"]*)"/g)].map((m) => Number(m[1]) || 0);
-    return { available: vals.length > 0, amount: vals.length ? Math.max(...vals) : 0, on: this.mgr.state.owners[WEATHER] === 'snow', weathers: vals.length };
+    const L = this.weatherLayers;
+    return { available: vals.length > 0, amount: L.snow || (vals.length ? Math.max(...vals) : 0), on: !!L.snow, weathers: vals.length };
   }
 
-  /** amount 0..1: snow for every weather type. 0 puts the file back. */
+  /** amount 0..1: snow for every weather type. 0 takes it out again. */
   setSnow(amount) {
     amount = Math.max(0, Math.min(1, +amount || 0));
-    if (!amount) { this.unpatch('snow', WEATHER); return this.snow(); }
-    const base = this.before('snow', WEATHER);
-    if (base == null) throw new Error('No weather.xml found in your game or packs.');
-    if (!/<Snow\s+value=/.test(base)) throw new Error('This weather.xml has no snow settings.');
-    const v = amount.toFixed(6);
-    // The amount alone shows nothing: each weather also names its falling-particle, mist and
-    // ground effects, and only the snowy ones name snow. Every weather borrows those from XMAS.
-    const items = base.match(/<Item>[\s\S]*?<\/Item>/g) || [];
-    const snowy = ['XMAS', 'BLIZZARD', 'SNOW', 'SNOWLIGHT'].map((n) => items.find((it) => new RegExp('<Name>\\s*' + n + '\\s*</Name>', 'i').test(it))).find(Boolean);
-    const effects = {};
-    if (snowy) for (const tag of SNOW_EFFECTS) { const m = new RegExp('<' + tag + '>([^<]*)</' + tag + '>').exec(snowy); if (m) effects[tag] = m[1]; }
-    const text = base.replace(/<Item>[\s\S]*?<\/Item>/g, (it) => {
-      let out = it.replace(/(<Snow\s+value=")[^"]*(")/g, '$1' + v + '$2').replace(/(<SnowMist\s+value=")[^"]*(")/g, '$1' + (amount * 0.6).toFixed(6) + '$2');
-      for (const [tag, val] of Object.entries(effects)) out = out.replace(new RegExp('(<' + tag + '>)[^<]*(</' + tag + '>)'), '$1' + val + '$2').replace(new RegExp('<' + tag + '\\s*/>'), '<' + tag + '>' + val + '</' + tag + '>');
-      return out;
-    });
-    this.patch('snow', WEATHER, text);
+    if (amount) {
+      const base = this.before('weather', WEATHER);
+      if (base == null) throw new Error('No weather.xml found in your game or packs.');
+      if (!/<Snow\s+value=/.test(base)) throw new Error('This weather.xml has no snow settings.');
+    }
+    this.weatherLayers.snow = amount || 0;
+    this.writeWeather();
     return this.snow();
   }
+
+  lightning() {
+    const text = this.current(WEATHER);
+    if (text == null) return { available: false };
+    return { available: /<Lightning\s+value=/.test(text), off: !!this.weatherLayers.noLightning };
+  }
+
+  /** off: no lightning in any weather (storms included). */
+  setLightning(off) {
+    if (off) {
+      const base = this.before('weather', WEATHER);
+      if (base == null) throw new Error('No weather.xml found in your game or packs.');
+      if (!/<Lightning\s+value=/.test(base)) throw new Error('This weather.xml has no lightning settings.');
+    }
+    this.weatherLayers.noLightning = !!off;
+    this.writeWeather();
+    return this.lightning();
+  }
+
+  // ---------- thunder (GTA V's audio archives) ----------
+
+  thunder() {
+    const t = this.w.thunder;
+    return { available: !!this.gtaDir(), off: !!(t && t.rels && t.rels.length), muted: t ? t.muted || 0 : 0 };
+  }
+
+  setThunder(off) {
+    const t = this.w.thunder || { rels: [] };
+    if (!off) {
+      for (const rel of t.rels) this.unpatch('thunder', rel);
+      delete this.w.thunder;
+      this.mgr.save();
+      return this.thunder();
+    }
+    const found = findThunder(this.gtaDir());
+    if (!found.length) throw new Error('No thunder sounds found in your GTA V audio files.');
+    const rels = [];
+    let muted = 0;
+    for (const a of found) {
+      const rel = citizenRel(a.name);
+      // build on the copy in citizen if a sound pack already replaced this archive
+      const abs = this.mgr.absFor(rel);
+      const ours = this.mgr.state.owners[rel] === 'thunder';
+      const prev = ours ? this.prevPath('thunder', rel) : abs;
+      const buf = fs.existsSync(prev) ? fs.readFileSync(prev) : fs.readFileSync(a.file);
+      const r = muteThunder(buf, a.name);
+      if (!r.muted) continue;
+      this.patch('thunder', rel, r.bytes);
+      rels.push(rel);
+      muted += r.muted;
+    }
+    if (!rels.length) throw new Error('The thunder sounds in your game could not be changed.');
+    this.w.thunder = { rels, muted };
+    this.mgr.save();
+    return this.thunder();
+  }
+}
+
+/** Snow in every weather: the amount, plus XMAS's falling-particle, mist and ground effects
+ *  (the amount alone shows nothing on weathers whose effects are not snowy). */
+function snowify(base, amount) {
+  const v = amount.toFixed(6);
+  const items = base.match(/<Item>[\s\S]*?<\/Item>/g) || [];
+  const snowy = ['XMAS', 'BLIZZARD', 'SNOW', 'SNOWLIGHT'].map((n) => items.find((it) => new RegExp('<Name>\\s*' + n + '\\s*</Name>', 'i').test(it))).find(Boolean);
+  const effects = {};
+  if (snowy) for (const tag of SNOW_EFFECTS) { const m = new RegExp('<' + tag + '>([^<]*)</' + tag + '>').exec(snowy); if (m) effects[tag] = m[1]; }
+  return base.replace(/<Item>[\s\S]*?<\/Item>/g, (it) => {
+    let out = it.replace(/(<Snow\s+value=")[^"]*(")/g, '$1' + v + '$2').replace(/(<SnowMist\s+value=")[^"]*(")/g, '$1' + (amount * 0.6).toFixed(6) + '$2');
+    for (const [tag, val] of Object.entries(effects)) out = out.replace(new RegExp('(<' + tag + '>)[^<]*(</' + tag + '>)'), '$1' + val + '$2').replace(new RegExp('<' + tag + '\\s*/>'), '<' + tag + '>' + val + '</' + tag + '>');
+    return out;
+  });
 }
 
 module.exports = { WorldFiles, VS, WEATHER, CLOUDS, PED_LOD };

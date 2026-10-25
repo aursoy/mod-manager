@@ -74,6 +74,18 @@ function snowCard(sn) {
   </div>`;
 }
 
+function onOffCard(key, ic, title, text, st, onLabel, offLabel) {
+  if (!st || !st.available) {
+    return `<div class="card tweak unset" data-world="${key}"><div class="tweak-top"><div class="tweak-icon">${icon(ic)}</div>
+      <div><span class="big-state">Not found</span><h3>${title}</h3><p>Link your citizen folder and GTA V first.</p></div></div></div>`;
+  }
+  return `<div class="card tweak ${st.off ? 'on' : ''}" data-world="${key}">
+    <div class="tweak-top"><div class="tweak-icon"><div class="wave"></div>${icon(ic)}</div>
+      <div><span class="big-state">${st.off ? onLabel : offLabel}</span><h3>${title}</h3><p>${text}</p></div></div>
+    <div class="state">${seg(st.off, !st.off, onLabel, offLabel)}<span></span></div>
+  </div>`;
+}
+
 function cloudsCard(c) {
   if (!c || !c.available) {
     return `<div class="card tweak unset" data-world="clouds"><div class="tweak-top"><div class="tweak-icon">${icon('cloud')}</div>
@@ -127,19 +139,24 @@ async function setMountains(opts, btn) {
 
 export async function refreshWorld() {
   const grid = $('#world-grid');
-  const [tweaks, m, p, sn, cl, v] = await Promise.all([
+  const [tweaks, m, p, sn, cl, li, th, v] = await Promise.all([
     api.call('tweaks:list').catch(() => []),
     api.call('world:mountains').catch(() => null),
     api.call('world:pedLod').catch(() => null),
     api.call('world:snow').catch(() => null),
     api.call('world:clouds').catch(() => null),
+    api.call('world:lightning').catch(() => null),
+    api.call('world:thunder').catch(() => null),
     api.call('world:visual').catch(() => null),
   ]);
   const own = tweaks.filter((t) => t.kind !== 'pack');
   const water = own.find((t) => t.id === 'water');
   vs.entries = v && v.entries ? v.entries : [];
   vs.edits = {};
-  grid.innerHTML = (water ? tweakCard(water) : '') + pedCard(p) + mountainsCard(m) + snowCard(sn) + cloudsCard(cl) + own.filter((t) => t.id !== 'water').map(tweakCard).join('') + vsCard(v);
+  grid.innerHTML = (water ? tweakCard(water) : '') + pedCard(p) + mountainsCard(m) + snowCard(sn) + cloudsCard(cl)
+    + onOffCard('lightning', 'zap', 'Lightning', 'No lightning flashes in any weather, storms included.', li, 'Off', 'On')
+    + onOffCard('thunder', 'mute', 'Thunder', 'Mutes the thunder sounds, so storms stay quiet.', th, 'Muted', 'On')
+    + own.filter((t) => t.id !== 'water').map(tweakCard).join('') + vsCard(v);
   stagger(grid);
   requestAnimationFrame(() => $$('.seg', grid).forEach(syncSeg));
   $$('input[type=range]', grid).forEach(fillRange);
@@ -221,6 +238,27 @@ export async function refreshWorld() {
         const r = await api.call('world:setClouds', on);
         notify.success(r.on ? 'Clouds stopped' : 'Clouds moving again', r.on ? 'The clouds stay where they are. Restart FiveM to see it.' : 'clouds.xml is back to how it was.');
       } catch (e) { notify.error('Could not change the clouds', e.message); }
+      refreshWorld();
+    }));
+  }
+
+  // lightning / thunder
+  const toggles = [
+    ['lightning', li, 'world:setLightning', (r) => (r.off ? ['Lightning off', 'No more flashes in any weather. Restart FiveM to see it.'] : ['Lightning back on', 'weather.xml is back to how it was.'])],
+    ['thunder', th, 'world:setThunder', (r) => (r.off ? ['Thunder muted', r.muted + ' thunder sounds are now silent. Restart FiveM to hear it.'] : ['Thunder back on', 'The game\'s own thunder sounds are used again.'])],
+  ];
+  for (const [key, st, ch, msg] of toggles) {
+    const card = $(`[data-world=${key}]`, grid);
+    if (!st || !st.available || !card) continue;
+    $$('.seg button', card).forEach((b) => (b.onclick = async () => {
+      const off = b.dataset.v === 'on';
+      if (off === st.off) return;
+      const h = key === 'thunder' && off ? notify({ type: 'loading', title: 'Muting thunder…', message: 'Reading your GTA V audio files.' }) : null;
+      try {
+        const r = await api.call(ch, off);
+        if (h) h.close();
+        notify.success(...msg(r));
+      } catch (e) { if (h) h.close(); notify.error('Could not change ' + key, e.message); }
       refreshWorld();
     }));
   }

@@ -884,3 +884,6 @@ body.tilt .gfx-tabs { display: flex; gap: 6px; padding: 0; border: 0; background
 body.tilt .gfx-tabs button { height: 38px; }
 body.tilt .tabs { gap: 6px; padding: 0; border: 0; background: none; }
 body.tilt .view-tabs { gap: 4px; }
+
+.finish-btns { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 8px; }
+.finish-btns .btn.on { background: #fff; color: #000; border-color: #fff; }

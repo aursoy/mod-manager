@@ -104,3 +104,25 @@ test('gun pack: exporting 3D parts twice gives the same file, and the parts are 
   const tex = back.describe().assets[0].textures[0];
   assert.ok(Buffer.from(tex.data).every((x) => x === 0x42), 'texture edit kept after the pages moved');
 });
+
+test('shine: the gun\'s specular settings go up with the slider, and back to the original at 0', () => {
+  const { shaderParams, joaat } = require('../src/core/shaderparams');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kt-shine-'));
+  const stored = buildYdr({ shine: true });
+  const file = path.join(dir, 'w_pi_test.rpf');
+  fs.writeFileSync(file, rpf.writeRpf({ type: 'dir', name: '', children: [{ type: 'res', name: 'w_pi_test.ydr', stored, sysFlags: stored.readUInt32LE(8), gfxFlags: stored.readUInt32LE(12) }] }));
+  const gun = new GunPack(file);
+  const value = (g, name) => shaderParams(g.assets[0].res).find((p) => p.hash === joaat(name)).value[0];
+  assert.strictEqual(value(gun, 'specularIntensityMult'), 0.5);
+  gun.applyEdits([], [], { shine: 1 });
+  gun.write(path.join(dir, 'chrome.rpf'));
+  const chrome = new GunPack(path.join(dir, 'chrome.rpf'));
+  assert.strictEqual(value(chrome, 'specularIntensityMult'), 3);
+  assert.strictEqual(value(chrome, 'specularFalloffMult'), 600);
+  gun.applyEdits([], [], { shine: 0.5 });
+  gun.write(path.join(dir, 'half.rpf'));
+  assert.strictEqual(value(new GunPack(path.join(dir, 'half.rpf')), 'specularIntensityMult'), 1.75);
+  gun.applyEdits([], [], { shine: 0 });
+  gun.write(path.join(dir, 'none.rpf'));
+  assert.strictEqual(value(new GunPack(path.join(dir, 'none.rpf')), 'specularFalloffMult'), 40, 'back to the original');
+});

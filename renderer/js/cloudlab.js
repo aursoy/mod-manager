@@ -69,7 +69,7 @@ ${cfg.mode === 'files'
                 <div class="slider-field"><span>Brightness <b id="${P}-bright-val">0</b></span><input type="range" id="${P}-bright" min="-100" max="100" value="0" /></div>
                 <div class="slider-field"><span>Contrast <b id="${P}-contrast-val">100%</b></span><input type="range" id="${P}-contrast" min="0" max="250" value="100" /></div>
                 <div class="ctrl-row tight"><label class="field colour-field"><span>Tint</span><input type="color" id="${P}-tint" value="#b050ff" /></label><div class="slider-field"><span>Amount <b id="${P}-tint-val">0%</b></span><input type="range" id="${P}-tint-amt" min="0" max="100" value="0" /></div></div>
-                <div class="cl-btns"><button class="btn primary sm" id="${P}-adj-apply"><i data-icon="check"></i>Apply</button><button class="btn ghost sm" id="${P}-adj-all"><i data-icon="layers"></i>Apply to all clouds</button><button class="btn ghost sm" id="${P}-adj-reset">Reset</button></div>
+                <div class="cl-btns"><button class="btn primary sm" id="${P}-adj-apply"><i data-icon="check"></i>Apply</button><button class="btn ghost sm" id="${P}-adj-all"><i data-icon="layers"></i>Apply to all</button><button class="btn ghost sm" id="${P}-adj-reset">Reset</button></div>
               </div>
               <div class="card cl-panel">
                 <h4>Picture &amp; edits</h4>
@@ -81,6 +81,13 @@ ${cfg.mode === 'files'
                   <button class="btn ghost sm" id="${P}-invert">Invert</button>
                   <button class="btn ghost sm" id="${P}-mono">Black &amp; white</button>
                   <button class="btn ghost sm" id="${P}-reset-tex"><i data-icon="undo"></i>Back to original</button>
+                </div>
+              </div>
+              <div class="card cl-panel">
+                <h4>Export images</h4>
+                <div class="cl-btns">
+                  <button class="btn ghost sm" id="${P}-export-one"><i data-icon="download"></i>Save this image</button>
+                  <button class="btn ghost sm" id="${P}-export-all"><i data-icon="download"></i>Save all as PNG</button>
                 </div>
               </div>
               <div class="card cl-panel"><h4>History</h4><ul class="cl-history" id="${P}-history"></ul></div>
@@ -508,6 +515,30 @@ export function createLab(cfg) {
   }
 
 
+  // ---------- export as PNG ----------
+
+  async function pngOf(d) {
+    const blob = await new Promise((res) => d.c.toBlob(res, 'image/png'));
+    return { name: d.t.name + '.png', data: new Uint8Array(await blob.arrayBuffer()) };
+  }
+
+  async function exportImages(all) {
+    let docs = [];
+    if (all) {
+      for (const it of st.items) for (const t of it.textures) { try { docs.push(docFor(it.key, t.index)); } catch (e) { /* format that cannot be decoded */ } }
+    } else if (st.cur) docs = [st.cur];
+    if (!docs.length) return notify.info('Nothing to save', 'Open some ' + cfg.texts.what + ' first.');
+    const btn = $('#' + P + (all ? '-export-all' : '-export-one'));
+    busy(btn, true);
+    try {
+      const files = [];
+      for (const d of docs) files.push(await pngOf(d));
+      const r = await api.call('images:save', files, { title: all ? 'Choose a folder for the images' : 'Save image' });
+      if (r) notify.success(r.count === 1 ? 'Image saved' : r.count + ' images saved', r.where);
+    } catch (e) { notify.error('Could not save', e.message); }
+    busy(btn, false);
+  }
+
   // ---------- install ----------
 
   function encodeDoc(d) {
@@ -575,7 +606,7 @@ export function createLab(cfg) {
   }
 
   function resetAdjust() {
-    for (const [id, v] of [['cl-hue', 0], ['cl-sat', 100], ['cl-bright', 0], ['cl-contrast', 100], ['cl-tint-amt', 0]]) { $('#' + id).value = v; fillRange($('#' + id)); }
+    for (const [id, v] of [['-hue', 0], ['-sat', 100], ['-bright', 0], ['-contrast', 100], ['-tint-amt', 0]]) { $('#' + P + id).value = v; fillRange($('#' + P + id)); }
     paintLabels(); st.preview = null; draw();
   }
 
@@ -628,6 +659,8 @@ export function createLab(cfg) {
     if (openBtn) openBtn.onclick = () => openFilesUI(null);
     const sf = $('#' + P + '-savefolder');
     if (sf) sf.onclick = saveFolder;
+    $('#' + P + '-export-one').onclick = () => exportImages(false);
+    $('#' + P + '-export-all').onclick = () => exportImages(true);
     $('#' + P + '-undo').onclick = undo;
     $('#' + P + '-redo').onclick = redo;
     const cmp = $('#' + P + '-compare');
@@ -636,8 +669,8 @@ export function createLab(cfg) {
     cmp.addEventListener('pointerdown', on); cmp.addEventListener('pointerup', off); cmp.addEventListener('pointerleave', off);
     $('#' + P + '-install').onclick = install;
     $('#' + P + '-uninstall').onclick = uninstall;
-    for (const id of ['cl-size', 'cl-soft', 'cl-opacity']) $('#' + id).addEventListener('input', paintLabels);
-    for (const id of ['cl-hue', 'cl-sat', 'cl-bright', 'cl-contrast', 'cl-tint-amt']) $('#' + id).addEventListener('input', () => { paintLabels(); queuePreview(); });
+    for (const id of ['-size', '-soft', '-opacity']) $('#' + P + id).addEventListener('input', paintLabels);
+    for (const id of ['-hue', '-sat', '-bright', '-contrast', '-tint-amt']) $('#' + P + id).addEventListener('input', () => { paintLabels(); queuePreview(); });
     $('#' + P + '-tint').addEventListener('input', queuePreview);
     $('#' + P + '-adj-apply').onclick = () => {
       const a = adjustValues(); if (!st.cur || neutral(a)) return;

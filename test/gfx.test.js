@@ -926,3 +926,20 @@ test('still clouds: every cloud hat stops turning and scrolling, and off puts cl
   wf.setStillClouds(false);
   assert.ok(!fs.existsSync(path.join(cit, CLOUDS)));
 });
+
+test('lightning off and snow share weather.xml: each switches off on its own', () => {
+  const { m, cit } = makeCitizen();
+  const XML = WEATHER_XML.replace(/<\/Name>/g, '</Name><Lightning value="0.400000"/>');
+  const wf = new WorldFiles(m, path.join(os.tmpdir(), 'kt-wf6-' + Date.now()), (arc, inner) => (arc === 'update/update.rpf' && inner.endsWith('weather.xml') ? Buffer.from(XML) : null));
+  assert.deepStrictEqual(wf.lightning(), { available: true, off: false });
+  wf.setLightning(true);
+  wf.setSnow(0.5);
+  let x = fs.readFileSync(path.join(cit, WEATHER), 'utf8');
+  assert.strictEqual((x.match(/<Lightning value="0.000000"\/>/g) || []).length, 2);
+  assert.strictEqual((x.match(/<Snow value="0.500000"\/>/g) || []).length, 2);
+  wf.setLightning(false);
+  x = fs.readFileSync(path.join(cit, WEATHER), 'utf8');
+  assert.ok(x.includes('<Lightning value="0.400000"/>') && x.includes('<Snow value="0.500000"/>'), 'lightning back, snow kept');
+  wf.setSnow(0);
+  assert.ok(!fs.existsSync(path.join(cit, WEATHER)));
+});

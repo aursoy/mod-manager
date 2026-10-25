@@ -6,6 +6,7 @@
 const fs = require('fs');
 const path = require('path');
 const rpf = require('./rpf');
+const { setShine } = require('./shaderparams');
 const { decodeResource, encodeResource, ResView } = require('./rsc');
 const { parseTextureDictionary } = require('./ytd');
 const { parseDrawable } = require('./ydr');
@@ -100,8 +101,13 @@ class GunPack {
   /** edits: [{ assetId, textureIndex, data:Uint8Array }]
    *  geometry: [{ assetId, lod, model, geometry, template, positions, normals, uvs, indices }]
    *  Always starts from the file as it was opened, so exporting twice gives the same result. */
-  applyEdits(edits, geometry = []) {
-    const touched = new Set([...edits.map((e) => this.assets[e.assetId]), ...geometry.map((g) => this.assets[g.assetId])].filter(Boolean));
+  /** opts.shine 0..1: how shiny / reflective every model gets (shader settings). */
+  applyEdits(edits, geometry = [], opts = {}) {
+    const shine = Math.max(0, Math.min(1, +opts.shine || 0));
+    const models = this.assets.filter((a) => a.ext === '.ydr');
+    // models shined last time are rebuilt from the original too, so lowering it works
+    const touched = new Set([...edits.map((e) => this.assets[e.assetId]), ...geometry.map((g) => this.assets[g.assetId]), ...(shine || this.shined ? models : [])].filter(Boolean));
+    this.shined = shine > 0;
     for (const a of touched) {
       a.res = decodeResource(a.stored, a.sysFlags, a.gfxFlags);
       if (a.entry) { a.entry.stored = a.stored; a.entry.gfxFlags = a.gfxFlags; }
@@ -116,6 +122,7 @@ class GunPack {
       }
       Buffer.from(ed.data.buffer, ed.data.byteOffset, ed.data.byteLength).copy(a.res.data, t.dataOffset);
     }
+    if (shine) for (const a of models) setShine(a.res, shine);
     // 3D parts last: adding geometry re-lays out the graphics pages (texture data moves)
     const byAsset = new Map();
     for (const g of geometry) {
