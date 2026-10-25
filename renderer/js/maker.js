@@ -3,6 +3,7 @@
 // them or saves them as an .rpf.
 import { notify } from './notify.js';
 import { busy } from './fx.js';
+import { paintUsage } from './aiusage.js';
 
 const api = window.api;
 const $ = (s, r = document) => r.querySelector(s);
@@ -60,6 +61,7 @@ async function send(text) {
   }
   busy($('#mk-send'), false);
   mk.busy = false;
+  paintUsage($('#mk-usage'));
 }
 
 export async function refreshMaker() {
@@ -68,6 +70,7 @@ export async function refreshMaker() {
   $('#mk-off').classList.toggle('hidden', on);
   $('#mk-input').disabled = !on;
   $('#mk-send').disabled = !on;
+  paintUsage($('#mk-usage'));
   if (!$('#mk-log').children.length) say('ai', 'Tell me what mod you want: more FPS, no lightning, a clear view, longer draw distance… I build it from your own game files.');
 }
 

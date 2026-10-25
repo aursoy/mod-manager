@@ -14,7 +14,7 @@ const { findGtaDirs, DEFAULT_REL: SKY_REL } = require('./src/core/skytex');
 const { openSkySource, skySources } = require('./src/core/skysource');
 const { listSources, openSource, openFiles } = require('./src/core/texsource');
 const { WorldFiles } = require('./src/core/worldfiles');
-const { askPackAi, askJson, findGateway, listModels, provider: aiProvider } = require('./src/core/packai');
+const { getLastUsage, credits, askPackAi, askJson, findGateway, listModels, provider: aiProvider } = require('./src/core/packai');
 const { EditorPack, modsPacks } = require('./src/core/editorpack');
 const { MOD_SCHEMA, MOD_SYSTEM, modContext, userMessage, buildMod, modRpf } = require('./src/core/modmaker');
 const { readFileFrom, findInFile } = require('./src/core/rpfscan');
@@ -354,7 +354,7 @@ app.whenReady().then(() => {
   handle('mod:ask', async (text, current) => {
     const read = (rel) => world.current(rel);
     if (!modCtx || !modCtx.visualsettings.length) modCtx = await worldCall(() => modContext(read));
-    const plan = await askJson(aiCfg(), { system: MOD_SYSTEM, schema: MOD_SCHEMA, user: userMessage(text, modCtx, current) });
+    const plan = await aiRun(() => askJson(aiCfg(), { system: MOD_SYSTEM, schema: MOD_SCHEMA, user: userMessage(text, modCtx, current) }));
     if (!plan || typeof plan.reply !== 'string') throw new Error('The AI answer was missing parts.');
     madeMod = await worldCall(() => buildMod(plan, read));
     return { reply: plan.reply, plan, mod: { name: madeMod.name, done: madeMod.done, skipped: madeMod.skipped, files: Object.keys(madeMod.files) } };
@@ -538,7 +538,24 @@ app.whenReady().then(() => {
       return listModels(aiCfg());
     }
   });
-  handle('ai:ask', (input) => askPackAi(aiCfg(), input));
+  // usage: requests and tokens today (counted here), plus what the provider says is left
+  const countAi = () => {
+    const day = new Date().toISOString().slice(0, 10);
+    const u = mgr.state.aiCount && mgr.state.aiCount.day === day ? mgr.state.aiCount : { day, requests: 0, tokens: 0 };
+    const last = getLastUsage();
+    u.requests++; u.tokens += last ? last.tokensUsed || 0 : 0;
+    mgr.state.aiCount = u;
+    mgr.save();
+  };
+  const aiRun = async (fn) => { try { return await fn(); } finally { countAi(); } };
+  handle('ai:ask', (input) => aiRun(() => askPackAi(aiCfg(), input)));
+  handle('ai:usage', async () => {
+    const c = aiCfg();
+    const day = new Date().toISOString().slice(0, 10);
+    const today = mgr.state.aiCount && mgr.state.aiCount.day === day ? mgr.state.aiCount : { day, requests: 0, tokens: 0 };
+    const p = (c.key || c.url) ? aiProvider(c) : null;
+    return { provider: p ? p.name : null, today, last: getLastUsage(), credits: await credits(c) };
+  });
   handle('ai:test', async () => (await askPackAi(aiCfg(), { text: 'pvp pack, no fog', spec: null })).reply);
 
   // ----- profile / discord -----
