@@ -298,7 +298,7 @@
           <div class="gun-drop" id="gun-drop">
             <div class="reticle"><span></span><span></span><span></span><span></span><i></i></div>
             <h2 class="headline">Gun <span class="outline">Lab.</span></h2>
-            <p>Drop a weapon <code>.rpf</code>, <code>.ytd</code> or <code>.ydr</code>. See it in 3D, recolour it, stamp text on it, export.</p>
+            <p>Drop a weapon <code>.rpf</code>, <code>.ytd</code> or <code>.ydr</code>.</p>
             <button class="btn primary" id="gun-browse"><i data-icon="upload"></i>Open weapon file</button>
           </div>
         </div>
@@ -324,13 +324,14 @@
             </div>
             <div class="viewport" id="viewport"></div>
             <div class="tex-view hidden" id="tex-view"><canvas id="tex-canvas"></canvas></div>
-            <div class="place-hint hidden" id="place-hint"><i data-icon="target"></i>Click on the gun to place text</div>
+            <div class="place-hint hidden" id="place-hint"><i data-icon="target"></i><span>Click on the gun</span></div>
           </div>
 
           <div class="lab-right card">
             <div class="tabs" id="inspector-tabs">
               <button class="tab on" data-tab="colour">Colour</button>
               <button class="tab" data-tab="text">Text</button>
+              <button class="tab" data-tab="chain">Chain</button>
               <button class="tab" data-tab="export">Export</button>
               <div class="tab-pill"></div>
             </div>
@@ -354,41 +355,51 @@
             </div>
 
             <div class="tab-body hidden" data-tab="text">
-              <div class="row-between"><p class="label">Layers</p><button class="btn primary sm" id="text-add"><i data-icon="plus"></i>Add text</button></div>
-              <ul class="layer-list" id="layer-list"></ul>
-              <div id="layer-editor" class="hidden">
-                <label class="field"><span>Text</span><input type="text" data-tx="text" maxlength="60" /></label>
+              <div class="row-between"><p class="label">3D text</p><button class="btn primary sm" id="text-add"><i data-icon="plus"></i>Add text</button></div>
+              <ul class="layer-list" id="text-list"></ul>
+              <div class="part-editor hidden" id="text-editor">
+                <label class="field"><span>Text</span><input type="text" data-p="text" maxlength="24" /></label>
                 <div class="ctrl-row tight font-row">
-                  <label class="field grow"><span>Font</span>
-                    <select data-tx="font">
-                      <option>Impact</option><option>Arial Black</option><option>Bahnschrift</option><option>Georgia</option><option>Segoe Script</option><option>Inter Variable</option><option>JetBrains Mono</option><option>Helvetiker</option><option>Optimer</option><option>Gentilis</option>
-                    </select>
-                  </label>
-                  <button class="btn ghost sm" id="text-font-load" title="Use any .ttf / .otf font file"><i data-icon="upload"></i>Font file</button>
+                  <label class="field grow"><span>Font</span><select data-p="font"><option>Impact</option><option>Arial Black</option><option>Bahnschrift</option><option>Georgia</option><option>Segoe Script</option><option>JetBrains Mono</option><option>Helvetiker</option><option>Optimer</option><option>Gentilis</option></select></label>
+                  <button class="btn ghost sm" data-act="font"><i data-icon="upload"></i>Font file</button>
                 </div>
-                <div class="seg" data-tx-seg="style"><button data-v="3d" class="on">3D text</button><button data-v="flat">Flat</button><i class="seg-thumb"></i></div>
-                <div class="slider-field"><span>Size <b data-txo="size"></b></span><input type="range" data-tx="size" min="8" max="400" /></div>
-                <div class="tx-3d">
-                  <div class="slider-field"><span>Thickness <b data-txo="depth3d"></b></span><input type="range" data-tx="depth3d" min="2" max="150" /></div>
-                  <div class="slider-field"><span>Bevel <b data-txo="bevel"></b></span><input type="range" data-tx="bevel" min="0" max="12" /></div>
-                  <div class="slider-field"><span>Tilt up / down <b data-txo="tiltX"></b></span><input type="range" data-tx="tiltX" min="-60" max="60" /></div>
-                  <div class="slider-field"><span>Tilt left / right <b data-txo="tiltY"></b></span><input type="range" data-tx="tiltY" min="-60" max="60" /></div>
-                  <div class="slider-field"><span>Light <b data-txo="light"></b></span><input type="range" data-tx="light" min="-180" max="180" /></div>
-                  <div class="seg" data-tx-seg="finish"><button data-v="metal" class="on">Metal</button><button data-v="chrome">Chrome</button><button data-v="gloss">Gloss</button><button data-v="matte">Matte</button><i class="seg-thumb"></i></div>
+                <button class="btn ghost sm full" data-act="place"><i data-icon="target"></i>Place on gun</button>
+                <div class="slider-field"><span>Size <b data-po="size"></b></span><input type="range" data-p="size" min="0.5" max="8" step="0.1" /></div>
+                <div class="slider-field"><span>Thickness <b data-po="depth"></b></span><input type="range" data-p="depth" min="0.5" max="15" step="0.5" /></div>
+                <div class="slider-field"><span>Bevel <b data-po="bevel"></b></span><input type="range" data-p="bevel" min="0" max="20" step="1" /></div>
+                <div class="slider-field"><span>Rotation <b data-po="rot"></b></span><input type="range" data-p="rot" min="-180" max="180" step="1" /></div>
+                <div class="slider-field"><span>Lift <b data-po="lift"></b></span><input type="range" data-p="lift" min="0" max="5" step="0.1" /></div>
+                <div class="ctrl-row tight two">
+                  <label class="field colour-field"><span>Front</span><input type="color" data-p="front" /></label>
+                  <label class="field colour-field"><span>Sides</span><input type="color" data-p="side" /></label>
                 </div>
-                <div class="slider-field tx-flat hidden"><span>Fake depth <b data-txo="depth"></b></span><input type="range" data-tx="depth" min="0" max="30" /></div>
-                <div class="slider-field"><span>Rotation <b data-txo="rot"></b></span><input type="range" data-tx="rot" min="-180" max="180" /></div>
-                <div class="slider-field"><span>Outline <b data-txo="outline"></b></span><input type="range" data-tx="outline" min="0" max="20" /></div>
-                <div class="slider-field"><span>Glow <b data-txo="glow"></b></span><input type="range" data-tx="glow" min="0" max="60" /></div>
-                <div class="ctrl-row tight three">
-                  <label class="field colour-field"><span>Fill</span><input type="color" data-tx="fill" /></label>
-                  <label class="field colour-field"><span>Side</span><input type="color" data-tx="side" /></label>
-                  <label class="field colour-field"><span>Outline</span><input type="color" data-tx="stroke" /></label>
+                <div class="seg" data-p-seg="finish"><button data-v="metal">Metal</button><button data-v="chrome">Chrome</button><button data-v="gloss">Gloss</button><button data-v="matte">Matte</button><i class="seg-thumb"></i></div>
+                <div class="row-end"><button class="btn ghost sm danger" data-act="delete"><i data-icon="trash"></i>Delete</button></div>
+              </div>
+            </div>
+
+            <div class="tab-body hidden" data-tab="chain">
+              <div class="row-between"><p class="label">Chains</p><button class="btn primary sm" id="chain-add"><i data-icon="plus"></i>Add chain</button></div>
+              <ul class="layer-list" id="chain-list"></ul>
+              <div class="part-editor hidden" id="chain-editor">
+                <button class="btn ghost sm full" data-act="place"><i data-icon="target"></i>Place on gun</button>
+                <div class="slider-field"><span>Links <b data-po="links"></b></span><input type="range" data-p="links" min="2" max="30" step="1" /></div>
+                <div class="slider-field"><span>Link size <b data-po="linkSize"></b></span><input type="range" data-p="linkSize" min="1.5" max="10" step="0.5" /></div>
+                <div class="slider-field"><span>Link thickness <b data-po="linkThick"></b></span><input type="range" data-p="linkThick" min="10" max="40" step="1" /></div>
+                <label class="field colour-field"><span>Chain colour</span><input type="color" data-p="colour" /></label>
+                <div class="seg" data-p-seg="finish"><button data-v="metal">Metal</button><button data-v="chrome">Chrome</button><button data-v="gloss">Gloss</button><button data-v="matte">Matte</button><i class="seg-thumb"></i></div>
+                <p class="label">Pendant</p>
+                <div class="seg" data-p-seg="pendant"><button data-v="logo">Logo</button><button data-v="text">Text</button><button data-v="none">None</button><i class="seg-thumb"></i></div>
+                <div class="pend-logo">
+                  <div class="seg" data-p-seg="shape"><button data-v="circle">Circle</button><button data-v="square">Square</button><button data-v="heart">Heart</button><i class="seg-thumb"></i></div>
+                  <button class="btn ghost sm full" data-act="logo"><i data-icon="image"></i>Choose logo</button>
                 </div>
-                <div class="row-between">
-                  <button class="btn ghost sm" id="text-place"><i data-icon="target"></i>Place on gun</button>
-                  <button class="btn ghost sm danger" id="text-del"><i data-icon="trash"></i>Delete</button>
+                <label class="field pend-text"><span>Pendant text</span><input type="text" data-p="pendantText" maxlength="12" /></label>
+                <div class="pend-any">
+                  <div class="slider-field"><span>Pendant size <b data-po="pendantSize"></b></span><input type="range" data-p="pendantSize" min="1" max="8" step="0.1" /></div>
+                  <label class="field colour-field"><span>Pendant colour</span><input type="color" data-p="rim" /></label>
                 </div>
+                <div class="row-end"><button class="btn ghost sm danger" data-act="delete"><i data-icon="trash"></i>Delete</button></div>
               </div>
             </div>
 
@@ -396,7 +407,7 @@
               <div class="export-sum" id="export-sum"></div>
               <button class="btn primary full big" id="export-save"><i data-icon="download"></i>Export file</button>
               <button class="btn ghost full" id="export-mods"><i data-icon="zap"></i>Install to FiveM mods folder</button>
-              <p class="fine">Textures are re-encoded in their original format and size, so the archive stays game-ready. Export never touches your original file.</p>
+              <p class="fine">Your original file is never changed.</p>
             </div>
           </div>
         </div>

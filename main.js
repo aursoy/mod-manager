@@ -443,9 +443,9 @@ app.whenReady().then(() => {
     if (fs.statSync(file).size > 30 * 1048576) throw new Error('That font file is too big.');
     return { name: path.basename(file).replace(/\.(ttf|otf)$/i, ''), data: fs.readFileSync(file) };
   });
-  handle('gun:export', async (edits, opts = {}) => {
+  handle('gun:export', async (edits, opts = {}, geometry = []) => {
     if (!gun) throw new Error('Open a gun file first.');
-    gun.applyEdits(edits.map((e) => ({ ...e, data: Buffer.from(e.data) })));
+    gun.applyEdits(edits.map((e) => ({ ...e, data: Buffer.from(e.data) })), geometry);
     let out = opts.path;
     if (opts.toMods) out = path.join(appPath(), 'mods', path.basename(gun.filePath));
     if (!out) {

@@ -303,10 +303,10 @@ input[type=range]:active::-webkit-slider-thumb { transform: scale(.95); box-shad
 .place-hint { position: absolute; z-index: 3; bottom: 18px; left: 50%; transform: translateX(-50%); display: flex; gap: 10px; align-items: center; padding: 10px 18px; border-radius: 99px; background: #fff; color: #000; font-size: 13px; font-weight: 600; animation: hint 1.6s ease-in-out infinite; }
 @keyframes hint { 50% { box-shadow: 0 0 0 10px rgba(255,255,255,.12); } }
 
-.tabs { position: relative; display: grid; grid-template-columns: repeat(3, 1fr); padding: 4px; border-radius: 12px; background: rgba(0,0,0,.4); border: 1px solid var(--line); margin-bottom: 16px; flex: none; }
+.tabs { position: relative; display: grid; grid-template-columns: repeat(var(--tabs, 3), 1fr); padding: 4px; border-radius: 12px; background: rgba(0,0,0,.4); border: 1px solid var(--line); margin-bottom: 16px; flex: none; }
 .tab { position: relative; z-index: 1; height: 32px; font-size: 12.5px; font-weight: 700; color: var(--ink-3); transition: color .3s; }
 .tab.on { color: #000; }
-.tab-pill { position: absolute; top: 4px; bottom: 4px; left: 4px; width: calc((100% - 8px) / 3); border-radius: 9px; background: #fff; transition: transform .5s var(--spring); }
+.tab-pill { position: absolute; top: 4px; bottom: 4px; left: 4px; width: calc((100% - 8px) / var(--tabs, 3)); border-radius: 9px; background: #fff; transition: transform .5s var(--spring); }
 .tab-body { overflow-y: auto; flex: 1; padding-right: 4px; animation: rise .45s var(--ease) both; }
 .layer-list { list-style: none; display: grid; gap: 6px; margin: 12px 0 16px; }
 .layer-list li { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); cursor: pointer; font-size: 13px; transition: all .3s var(--ease); animation: rise .4s var(--ease) both; }
@@ -785,5 +785,9 @@ body.custom-bg #bg { display: none; }
 
 /* Gun Lab text: font picker row and the 3D text controls */
 .ctrl-row.tight.font-row { grid-template-columns: 1fr auto; align-items: end; gap: 8px; }
-.tx-3d { display: grid; gap: 4px; }
+#inspector-tabs { --tabs: 4; }
+.part-editor { display: grid; gap: 4px; margin-top: 10px; }
+.part-editor .field { margin-bottom: 8px; }
+.part-editor .seg { margin: 2px 0 12px; }
+.ctrl-row.tight.two { grid-template-columns: 1fr 1fr; }
 #layer-editor .seg { margin: 2px 0 12px; }
