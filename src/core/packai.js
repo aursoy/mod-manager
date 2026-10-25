@@ -219,17 +219,21 @@ const LOCAL_GATEWAYS = [
   { name: 'Ollama', url: 'http://localhost:11434/v1' },
 ];
 
-/** The first local gateway that answers with a model list for this key, or null. */
+/** Where this key works, when its first letters do not say: every OpenAI-style provider
+ *  and every local gateway is asked for its model list with the key, all at once, and
+ *  the first in list order that answers wins. { name, url } or null. */
 async function findGateway(key, fetchImpl = fetch) {
-  for (const g of LOCAL_GATEWAYS) {
+  const places = [...PROVIDERS.filter((p) => !p.anthropic).map((p) => ({ name: p.name, url: p.url })), ...LOCAL_GATEWAYS];
+  const ok = await Promise.all(places.map(async (g) => {
     try {
-      const r = await fetchImpl(g.url + '/models', { headers: key ? { authorization: 'Bearer ' + key } : {}, signal: AbortSignal.timeout(2500) });
-      if (!r.ok) continue;
+      const r = await fetchImpl(g.url.replace(/\/$/, '') + '/models', { headers: key ? { authorization: 'Bearer ' + key } : {}, signal: AbortSignal.timeout(6000) });
+      if (!r.ok) return false;
       const j = await r.json();
-      if (Array.isArray(j.data || j.models)) return g;
-    } catch (e) { /* not running */ }
-  }
-  return null;
+      return Array.isArray(j.data || j.models);
+    } catch (e) { return false; }
+  }));
+  const i = ok.indexOf(true);
+  return i < 0 ? null : places[i];
 }
 
 /** Any other job: { system, schema, user } -> the parsed JSON answer. */

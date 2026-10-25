@@ -73,3 +73,13 @@ test('a key from an AI router on this PC (OmniRoute) is found without typing its
   assert.strictEqual(g.url, 'http://localhost:20128/v1');
   assert.strictEqual(await findGateway('wrong', fake), null);
 });
+
+test('a key in a format the app does not know is found by asking each provider', async () => {
+  const { findGateway } = require('../src/core/packai');
+  const fake = async (url, opts) => {
+    if (url === 'https://generativelanguage.googleapis.com/v1beta/openai/models' && opts.headers.authorization === 'Bearer AQ.newformat') return { ok: true, json: async () => ({ data: [{ id: 'models/gemini-2.5-flash' }] }) };
+    return { ok: false, status: 401, json: async () => ({}) };
+  };
+  const g = await findGateway('AQ.newformat', fake);
+  assert.strictEqual(g.name, 'Google Gemini');
+});

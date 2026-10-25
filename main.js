@@ -527,10 +527,10 @@ app.whenReady().then(() => {
   handle('ai:models', async () => {
     const c = aiCfg();
     try { return await listModels(c); } catch (e) {
-      // no link given: the key may be for an AI router on this PC (OmniRoute, LiteLLM, LM Studio, Ollama)
+      // no link given: find where the key works (any provider, or an AI router on this PC)
       if (c.url) throw e;
       const g = await findGateway(c.key);
-      if (!g) throw new Error(e.message + ' If your key is from an AI router (OmniRoute, LiteLLM...), press "API link" and paste its address, e.g. http://localhost:20128/v1');
+      if (!g) throw new Error('No AI service accepted this key. Check it was copied whole. For an AI router (OmniRoute, LiteLLM...) press "API link" and paste its address, e.g. http://localhost:20128/v1');
       mgr.state.ai = { ...mgr.state.ai, url: g.url, model: '' };
       mgr.save();
       return listModels(aiCfg());
