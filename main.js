@@ -371,9 +371,21 @@ app.whenReady().then(() => {
     if (!madeMod || !Object.keys(madeMod.files).length) throw new Error('Make a mod first.');
     const r = await dialog.showSaveDialog(win, { title: 'Save mod as .rpf', defaultPath: madeMod.name.replace(/\s+/g, '_') + '.rpf', filters: [{ name: 'RPF', extensions: ['rpf'] }] });
     if (r.canceled) return null;
-    const bytes = modRpf(madeMod.files);
+    const bytes = modRpf(madeMod.files, { name: madeMod.name, description: madeMod.done.join('\n') });
     fs.writeFileSync(r.filePath, bytes);
     return { path: r.filePath, bytes: bytes.length };
+  });
+  // the same .rpf straight into your own FiveM.app/mods, to try it the way your mates will
+  handle('mod:toMods', () => {
+    if (!madeMod || !Object.keys(madeMod.files).length) throw new Error('Make a mod first.');
+    const dir = path.join(appPath(), 'mods');
+    fs.mkdirSync(dir, { recursive: true });
+    const out = path.join(dir, 'kt_' + madeMod.name.replace(/[^\w-]+/g, '_').toLowerCase() + '.rpf');
+    if (fs.existsSync(out)) fs.copyFileSync(out, out + '.bak');
+    fs.writeFileSync(out, modRpf(madeMod.files, { name: madeMod.name, description: madeMod.done.join('\n') }));
+    mgr.log('success', 'Put AI mod "' + madeMod.name + '" in FiveM.app/mods');
+    mgr.save();
+    return { path: out };
   });
   handle('world:stars', () => worldCall(() => world.stars()));
   handle('world:setStars', (mode) => worldCall(() => world.setStars(mode)));

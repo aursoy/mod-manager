@@ -32,6 +32,7 @@ function paintResult() {
   const has = !!(m && m.files.length);
   $('#mk-install').disabled = !has;
   $('#mk-rpf').disabled = !has;
+  $('#mk-tomods').disabled = !has;
 }
 
 async function send(text) {
@@ -83,6 +84,15 @@ export function initMaker(c) {
   $('#mk-new').onclick = () => { mk.plan = null; mk.mod = null; $('#mk-log').innerHTML = ''; paintResult(); refreshMaker(); };
   $('#mk-install').onclick = (e) => install(e.currentTarget);
   $('#mk-rpf').onclick = (e) => saveRpf(e.currentTarget);
+  $('#mk-tomods').onclick = async (e) => {
+    const btn = e.currentTarget;
+    busy(btn, true);
+    try {
+      const r = await api.call('mod:toMods');
+      notify.success('In your mods folder', r.path.split(/[\\/]/).pop() + ' is in FiveM.app/mods, exactly how your mates will use it. Restart FiveM to try it.', { action: { label: 'Show in folder', fn: () => api.call('shell:reveal', r.path) } });
+    } catch (err) { notify.error('Could not put it there', err.message); }
+    busy(btn, false);
+  };
   paintResult();
 }
 
@@ -99,7 +109,7 @@ async function saveRpf(btn) {
   busy(btn, true);
   try {
     const r = await api.call('mod:saveRpf');
-    if (r) notify.success('Saved', r.path.split(/[\\/]/).pop() + ' · ' + Math.max(1, Math.round(r.bytes / 1024)) + ' KB', { action: { label: 'Show in folder', fn: () => api.call('shell:reveal', r.path) } });
+    if (r) notify.success('Saved ' + r.path.split(/[\\/]/).pop(), 'Send it to your mates: they drop it in FiveM.app/mods and restart FiveM.', { action: { label: 'Show in folder', fn: () => api.call('shell:reveal', r.path) } });
   } catch (err) { notify.error('Could not save', err.message); }
   busy(btn, false);
 }
