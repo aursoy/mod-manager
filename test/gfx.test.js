@@ -687,7 +687,7 @@ test('black mountains: lowers the draw distance on top of a pack\'s visualsettin
 test('snow: switches on snow for every weather from GTA V\'s own weather.xml, off removes the file again', () => {
   const { m, cit } = makeCitizen();
   const wf = new WorldFiles(m, path.join(os.tmpdir(), 'kt-wf2-' + Date.now()), (arc, inner) => (arc === 'update/update.rpf' && inner.endsWith('weather.xml') ? Buffer.from(WEATHER_XML) : null));
-  assert.deepStrictEqual(wf.snow(), { available: true, amount: 1, on: false, weathers: 2 });
+  assert.deepStrictEqual(wf.snow(), { available: true, modsWeather: [], amount: 1, on: false, weathers: 2 });
   const st = wf.setSnow(0.8);
   assert.strictEqual(st.on, true);
   const x = fs.readFileSync(path.join(cit, WEATHER), 'utf8');
@@ -942,4 +942,46 @@ test('lightning off and snow share weather.xml: each switches off on its own', (
   assert.ok(x.includes('<Lightning value="0.400000"/>') && x.includes('<Snow value="0.500000"/>'), 'lightning back, snow kept');
   wf.setSnow(0);
   assert.ok(!fs.existsSync(path.join(cit, WEATHER)));
+});
+
+test('snow gets through a graphics pack whose weather.xml blanks or removes the snow settings', () => {
+  const { m, cit } = makeCitizen();
+  // the pack: no Snow lines at all, snow effects blanked, no XMAS weather
+  const PACK = '<CWeatherTypes><WeatherTypes><Item><Name>EXTRASUNNY</Name><DropSettingName /><MistSettingName>MIST_NONE</MistSettingName><GroundSettingName>DRY</GroundSettingName></Item></WeatherTypes></CWeatherTypes>';
+  const packDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kt-snowpack-'));
+  fs.mkdirSync(path.join(packDir, 'citizen', 'common', 'data', 'levels', 'gta5'), { recursive: true });
+  fs.writeFileSync(path.join(packDir, 'citizen', 'common', 'data', 'levels', 'gta5', 'weather.xml'), PACK);
+  const pack = m.addCustom('NoSnow', [packDir], 'pack');
+  m.setTweak(pack, true);
+  const wf = new WorldFiles(m, path.join(os.tmpdir(), 'kt-wf7-' + Date.now()), (arc, inner) => (arc === 'update/update.rpf' && inner.endsWith('weather.xml') ? Buffer.from(WEATHER_XML) : null));
+  wf.setSnow(1);
+  const x = fs.readFileSync(path.join(cit, WEATHER), 'utf8');
+  assert.ok(x.includes('<Snow value="1.000000"/>') && x.includes('<SnowMist value="0.600000"/>'), 'missing lines added');
+  assert.ok(x.includes('<DropSettingName>SNOW_XMAS</DropSettingName>') && x.includes('<MistSettingName>MIST_SNOW</MistSettingName>') && x.includes('<GroundSettingName>SNOW_GROUND</GroundSettingName>'), 'effects from the game\'s own file');
+  wf.setSnow(0);
+  assert.strictEqual(fs.readFileSync(path.join(cit, WEATHER), 'utf8'), PACK, 'the pack\'s file is back');
+});
+
+test('stars: off on every timecycle (a pack\'s too), on gives stars at night, pack puts it back', () => {
+  const { m, cit } = makeCitizen();
+  const TC = (stars) => `<timecycle_keyframe_data><cycle name="X"><region name="GLOBAL"><sky_zenith_col_r>0.2 0.2 0.2 0.2 0.2 0.2 0.2 0.2 0.2</sky_zenith_col_r><sky_stars_iten>${stars}</sky_stars_iten></region></cycle></timecycle_keyframe_data>`;
+  const packTc = TC('0 0 0 0 0 0 0 0 0'); // a pack with no stars
+  const packDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kt-starpack-'));
+  fs.mkdirSync(path.join(packDir, 'citizen', 'common', 'data', 'timecycle'), { recursive: true });
+  fs.writeFileSync(path.join(packDir, 'citizen', 'common', 'data', 'timecycle', 'w_clear.xml'), packTc);
+  const pack = m.addCustom('NoStars', [packDir], 'pack');
+  m.setTweak(pack, true);
+  const game = TC('2 0.5 0 0 0 0 0.5 1 2');
+  const wf = new WorldFiles(m, path.join(os.tmpdir(), 'kt-wf8-' + Date.now()), (arc, inner) => (arc === 'update/update.rpf' && /timecycle\/w_(clear|rain)\.xml$/.test(inner) ? Buffer.from(game) : null));
+  assert.deepStrictEqual(wf.stars(), { available: true, mode: 'pack', pictureSky: false });
+  wf.setStars('on');
+  const clear = () => /<sky_stars_iten>([^<]*)</.exec(fs.readFileSync(path.join(cit, 'common/data/timecycle/w_clear.xml'), 'utf8'))[1];
+  assert.strictEqual(clear(), '1 0 0 0 0 0 0 0 1', 'night boxes (00:00, 21:00) get stars; the game file already had them so it is left alone');
+  assert.ok(!fs.existsSync(path.join(cit, 'common/data/timecycle/w_rain.xml')));
+  wf.setStars('off');
+  assert.ok(/^(0\.0000 ?)+$/.test(clear()));
+  assert.ok(fs.readFileSync(path.join(cit, 'common/data/timecycle/w_rain.xml'), 'utf8').includes('<sky_stars_iten>0.0000 0.0000'), 'the game\'s own weathers too');
+  wf.setStars('pack');
+  assert.strictEqual(fs.readFileSync(path.join(cit, 'common/data/timecycle/w_clear.xml'), 'utf8'), packTc);
+  assert.ok(!fs.existsSync(path.join(cit, 'common/data/timecycle/w_rain.xml')));
 });

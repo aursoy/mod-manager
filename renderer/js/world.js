@@ -68,7 +68,7 @@ function snowCard(sn) {
   return `<div class="card tweak ${sn.on ? 'on' : ''}" data-world="snow">
     <div class="tweak-top"><div class="tweak-icon"><div class="wave"></div>${icon('snow')}</div>
       <div><span class="big-state">${sn.on ? 'On' : 'Off'}</span><h3>Snow</h3>
-      <p>Snow on the ground and in the air, in every weather.</p></div></div>
+      <p>Snow in every weather, even with a graphics pack that turns it off.${sn.modsWeather && sn.modsWeather.length ? ' <b>' + esc(sn.modsWeather.join(', ')) + ' in your mods folder has its own weather file and may still block it; switch that off on the Mods page if snow does not show.</b>' : ''}</p></div></div>
     <div class="slider-field"><span>Amount <b id="snow-val">${Math.round((sn.on ? sn.amount : 1) * 100)}%</b></span><input type="range" id="snow-amt" min="5" max="100" value="${Math.round((sn.on ? sn.amount : 1) * 100)}" /></div>
     <div class="state">${seg(sn.on, !sn.on, 'On', 'Off')}<span></span></div>
   </div>`;
@@ -83,6 +83,20 @@ function onOffCard(key, ic, title, text, st, onLabel, offLabel) {
     <div class="tweak-top"><div class="tweak-icon"><div class="wave"></div>${icon(ic)}</div>
       <div><span class="big-state">${st.off ? onLabel : offLabel}</span><h3>${title}</h3><p>${text}</p></div></div>
     <div class="state">${seg(st.off, !st.off, onLabel, offLabel)}<span></span></div>
+  </div>`;
+}
+
+function starsCard(st) {
+  if (!st || !st.available) {
+    return `<div class="card tweak unset" data-world="stars"><div class="tweak-top"><div class="tweak-icon">${icon('sparkles')}</div>
+      <div><span class="big-state">Not found</span><h3>Stars</h3><p>Link your citizen folder and GTA V first.</p></div></div></div>`;
+  }
+  const opt = [['pack', 'Pack'], ['on', 'On'], ['off', 'Off']];
+  return `<div class="card tweak ${st.mode !== 'pack' ? 'on' : ''}" data-world="stars">
+    <div class="tweak-top"><div class="tweak-icon"><div class="wave"></div>${icon('sparkles')}</div>
+      <div><span class="big-state">${esc(opt.find((o) => o[0] === st.mode)[1])}</span><h3>Stars</h3>
+      <p>Stars at night, whatever your graphics pack does.${st.pictureSky ? ' <b>Your pack draws its sky as a picture through the stars, so Off hides that picture too.</b>' : ''}</p></div></div>
+    <div class="state"><div class="seg">${opt.map(([v, l]) => `<button data-v="${v}" class="${st.mode === v ? 'on' : ''}">${l}</button>`).join('')}<i class="seg-thumb"></i></div><span></span></div>
   </div>`;
 }
 
@@ -139,13 +153,14 @@ async function setMountains(opts, btn) {
 
 export async function refreshWorld() {
   const grid = $('#world-grid');
-  const [tweaks, m, p, sn, cl, li, th, v] = await Promise.all([
+  const [tweaks, m, p, sn, cl, li, stars, th, v] = await Promise.all([
     api.call('tweaks:list').catch(() => []),
     api.call('world:mountains').catch(() => null),
     api.call('world:pedLod').catch(() => null),
     api.call('world:snow').catch(() => null),
     api.call('world:clouds').catch(() => null),
     api.call('world:lightning').catch(() => null),
+    api.call('world:stars').catch(() => null),
     api.call('world:thunder').catch(() => null),
     api.call('world:visual').catch(() => null),
   ]);
@@ -153,7 +168,7 @@ export async function refreshWorld() {
   const water = own.find((t) => t.id === 'water');
   vs.entries = v && v.entries ? v.entries : [];
   vs.edits = {};
-  grid.innerHTML = (water ? tweakCard(water) : '') + pedCard(p) + mountainsCard(m) + snowCard(sn) + cloudsCard(cl)
+  grid.innerHTML = (water ? tweakCard(water) : '') + pedCard(p) + mountainsCard(m) + snowCard(sn) + cloudsCard(cl) + starsCard(stars)
     + onOffCard('lightning', 'zap', 'Lightning', 'No lightning flashes in any weather, storms included.', li, 'Off', 'On')
     + onOffCard('thunder', 'mute', 'Thunder', 'Mutes the thunder sounds, so storms stay quiet.', th, 'Muted', 'On')
     + own.filter((t) => t.id !== 'water').map(tweakCard).join('') + vsCard(v);
@@ -238,6 +253,19 @@ export async function refreshWorld() {
         const r = await api.call('world:setClouds', on);
         notify.success(r.on ? 'Clouds stopped' : 'Clouds moving again', r.on ? 'The clouds stay where they are. Restart FiveM to see it.' : 'clouds.xml is back to how it was.');
       } catch (e) { notify.error('Could not change the clouds', e.message); }
+      refreshWorld();
+    }));
+  }
+
+  // stars
+  const stc = $('[data-world=stars]', grid);
+  if (stars && stars.available) {
+    $$('.seg button', stc).forEach((b) => (b.onclick = async () => {
+      if (b.dataset.v === stars.mode) return;
+      try {
+        await api.call('world:setStars', b.dataset.v);
+        notify.success({ on: 'Stars on', off: 'Stars off', pack: 'Stars as your pack has them' }[b.dataset.v], 'Restart FiveM to see it.');
+      } catch (e) { notify.error('Could not change the stars', e.message); }
       refreshWorld();
     }));
   }

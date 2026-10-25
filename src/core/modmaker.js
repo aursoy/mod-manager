@@ -51,7 +51,7 @@ What you can change (and only this):
 - "stillClouds": true to stop clouds moving. "snow": 0-1 for snow in every weather, null to leave it.
 
 "unsupported": for anything asked that is not in the list above (car or ped models, clothes, textures, scripts, handling, sounds), one short plain line each, e.g. "Recolouring people's clothes needs their texture files, which this can't change yet." Never pretend you did it.
-"reply": one or two short, casual sentences about the mod. No lists, no markdown. "name": a short mod name.
+"reply": one or two short, casual sentences about the mod. No lists, no markdown. The app shows "Save as .rpf" and "Install" buttons under your reply, so when the player asks for an rpf just say it is ready to save. Never say you changed their game: nothing is installed until they press Install. "name": a short mod name.
 Follow-ups change the mod you made last time (given as "current mod"); send the whole mod again with the change.`;
 
 /** The lists the AI chooses from, from the player's own files. */
@@ -125,7 +125,7 @@ function buildMod(plan, read) {
         else skipped.push('weather.xml has no ' + x.field + (all ? '' : ' for ' + x.weather) + '.');
       }
       const snow = Math.max(0, Math.min(1, +plan.snow || 0));
-      if (snow) { text = snowify(text, snow); done.push('snow in every weather (' + Math.round(snow * 100) + '%)'); }
+      if (snow) { text = snowify(text, snow, read.stock ? read.stock(WEATHER) : null); done.push('snow in every weather (' + Math.round(snow * 100) + '%)'); }
       files[WEATHER] = text;
     }
   }

@@ -892,3 +892,4 @@ body.tilt .view-tabs { gap: 4px; }
 .mk-off small { color: var(--ink-3); }
 .aip-report li.skip { color: var(--ink-3); }
 .aip-report li.skip::before { content: '–'; color: var(--ink-3); }
+.mk-acts { display: flex; gap: 8px; margin-top: 10px; }
